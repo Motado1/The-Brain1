@@ -1,0 +1,39 @@
+{
+  "name": "the-brain",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3001",
+    "dev:brain": "node scripts/ensure-base-data.js && npm run dev",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3000",
+    "lint": "next lint",
+    "setup-brain": "node scripts/ensure-base-data.js"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.114.3",
+    "@react-three/fiber": "^8.18.0",
+    "@react-three/postprocessing": "^2.19.1",
+    "@supabase/supabase-js": "^2.50.0",
+    "d3-force": "^3.0.0",
+    "d3-force-3d": "^3.0.6",
+    "gsap": "^3.13.0",
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18",
+    "three": "^0.160.1",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/three": "^0.177.0",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.5",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

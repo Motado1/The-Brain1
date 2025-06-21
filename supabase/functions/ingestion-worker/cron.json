@@ -1,0 +1,6 @@
+{
+  "cron": "* * * * *",
+  "name": "ingestion-worker-cron",
+  "description": "Process RAG ingestion jobs every minute",
+  "function": "ingestion-worker"
+}
