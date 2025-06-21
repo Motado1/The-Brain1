@@ -3,11 +3,10 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { NodeData, EdgeData, KnowledgeItem } from './types';
 
 type Pulse = {
-  id: string;
   edgeId: string;
   t: number;
   speed: number;
-  color: string;
+  cascaded: boolean;
 };
 
 interface BrainState {
@@ -20,6 +19,7 @@ interface BrainState {
   loading: boolean;
   error: string | null;
   pulses: Pulse[];
+  highlightedNodes: Map<string, number>; // nodeId -> timestamp when highlight expires
   _ambientTimer?: NodeJS.Timeout;
   
   // Batch operations
@@ -58,11 +58,15 @@ interface BrainState {
   setKnowledgeItems: (items: KnowledgeItem[]) => void;
   
   // Pulse management
-  addPulse: (edgeId: string, color: string) => void;
+  spawnPulse: (edgeId: string, cascaded?: boolean) => void;
   tickPulses: (dt: number) => void;
   spawnRandomPulse: () => void;
   startAmbientFiring: (intervalMs?: number) => void;
   stopAmbientFiring: () => void;
+  onPulseArrive: (edge: EdgeData) => void;
+  highlightNode: (nodeId: string) => void;
+  isNodeHighlighted: (nodeId: string) => boolean;
+  cleanupExpiredHighlights: () => void;
   
   // Error handling
   clearError: () => void;
@@ -83,6 +87,7 @@ export const useBrainStore = create<BrainState>()(
     loading: false,
     error: null,
     pulses: [],
+    highlightedNodes: new Map(),
     _ambientTimer: undefined,
     
     // Batch operations
@@ -142,18 +147,18 @@ export const useBrainStore = create<BrainState>()(
     setKnowledgeItems: (items) => set({ knowledgeItems: items }),
 
     // Pulse management
-    addPulse: (edgeId: string, color: string) => set((state) => {
-      // Limit pulses to prevent performance issues
-      if (state.pulses.length > 200) {
-        state.pulses.shift(); // Remove oldest pulse
+    spawnPulse: (edgeId: string, cascaded = false) => set((state) => {
+      // Check if edge already has a pulse (no-op if exists)
+      const existingPulse = state.pulses.find(p => p.edgeId === edgeId);
+      if (existingPulse) {
+        return state; // No-op: edge already has an active pulse
       }
       
       const newPulse: Pulse = {
-        id: generateId(),
         edgeId,
         t: 0,
-        speed: (0.4 + Math.random() * 0.3) * 0.85, // 15% slower
-        color
+        speed: 0.4 + Math.random() * 0.3, // Random speed variation
+        cascaded
       };
       
       return {
@@ -161,33 +166,47 @@ export const useBrainStore = create<BrainState>()(
       };
     }),
 
-    tickPulses: (dt: number) => set((state) => ({
-      pulses: state.pulses
-        .map(pulse => ({ ...pulse, t: pulse.t + pulse.speed * dt }))
-        .filter(pulse => pulse.t <= 1) // Remove completed pulses
-    })),
+    tickPulses: (dt: number) => set((state) => {
+      const { edges, onPulseArrive } = get();
+      const updatedPulses = [];
+      
+      for (const pulse of state.pulses) {
+        const newT = pulse.t + pulse.speed * dt;
+        
+        if (newT >= 1.0) {
+          // Pulse has arrived at target node
+          const edge = edges.find(e => e.id === pulse.edgeId);
+          if (edge) {
+            onPulseArrive(edge);
+          }
+          // Don't add to updated pulses (remove completed pulse)
+        } else {
+          updatedPulses.push({ ...pulse, t: newT });
+        }
+      }
+      
+      return { pulses: updatedPulses };
+    }),
 
     spawnRandomPulse: () => {
-      const { edges, addPulse, nodes } = get();
+      const { edges, spawnPulse } = get();
       if (!edges.length) return;
       
       // Get random edge
       const edge = edges[Math.floor(Math.random() * edges.length)];
       
-      // Determine color based on source node type
-      const sourceNode = nodes.find(n => n.id === edge.source);
-      const color = sourceNode?.entity_type === 'idea' ? '#4ec5ff' : 
-                   sourceNode?.entity_type === 'task' ? '#ff9500' : 
-                   sourceNode?.entity_type === 'project' ? '#4ec5ff' : '#9e7dff';
-      
-      addPulse(edge.id, color);
+      // Spawn pulse (will be ignored if edge already has one)
+      spawnPulse(edge.id, false);
     },
 
     startAmbientFiring: (intervalMs = 1200) => {
-      const { _ambientTimer, spawnRandomPulse } = get();
+      const { _ambientTimer, spawnRandomPulse, cleanupExpiredHighlights } = get();
       if (_ambientTimer) return; // Already running
       
-      const timerId = setInterval(spawnRandomPulse, intervalMs);
+      const timerId = setInterval(() => {
+        spawnRandomPulse();
+        cleanupExpiredHighlights(); // Clean up expired highlights periodically
+      }, intervalMs);
       set({ _ambientTimer: timerId });
     },
 
@@ -465,6 +484,59 @@ export const useBrainStore = create<BrainState>()(
         return false;
       }
     },
+
+    // Pulse cascade logic
+    onPulseArrive: (edge: EdgeData) => {
+      const { edges, spawnPulse, highlightNode } = get();
+      
+      // Random cascade: 35% chance
+      const fireCascade = Math.random() < 0.35;
+      
+      if (fireCascade) {
+        // Find all outgoing edges from the target node
+        const outgoingEdges = edges.filter(e => e.source === edge.target);
+        
+        // Spawn cascaded pulses on all outgoing edges
+        outgoingEdges.forEach(outgoingEdge => {
+          spawnPulse(outgoingEdge.id, true); // cascaded = true
+        });
+      }
+      
+      // Highlight the target node
+      highlightNode(edge.target);
+    },
+
+    highlightNode: (nodeId: string) => set((state) => {
+      const newHighlights = new Map(state.highlightedNodes);
+      const now = Date.now();
+      const highlightDuration = 2000; // 2 seconds
+      
+      newHighlights.set(nodeId, now + highlightDuration);
+      
+      return { highlightedNodes: newHighlights };
+    }),
+
+    isNodeHighlighted: (nodeId: string) => {
+      const { highlightedNodes } = get();
+      const expiry = highlightedNodes.get(nodeId);
+      const now = Date.now();
+      
+      // Only return true if not expired - don't clean up during render
+      return expiry && now < expiry;
+    },
+
+    cleanupExpiredHighlights: () => set((state) => {
+      const now = Date.now();
+      const newHighlights = new Map();
+      
+      for (const [nodeId, expiry] of state.highlightedNodes.entries()) {
+        if (now < expiry) {
+          newHighlights.set(nodeId, expiry);
+        }
+      }
+      
+      return { highlightedNodes: newHighlights };
+    }),
 
     // Error handling
     clearError: () => {

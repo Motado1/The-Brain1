@@ -150,6 +150,7 @@ interface NeuroLinkProps {
   pulseCount?: number
   showParticles?: boolean
   particleCount?: number
+  sourceNode?: any // Source node for color extraction
 }
 
 export function NeuroLink({
@@ -162,7 +163,8 @@ export function NeuroLink({
   pulseSpeed = 0.6,
   pulseCount = 3,
   showParticles = true,
-  particleCount = 15
+  particleCount = 15,
+  sourceNode
 }: NeuroLinkProps) {
   const matRef = useRef<any>(null)
   
@@ -175,6 +177,27 @@ export function NeuroLink({
     () => new THREE.TubeGeometry(curve, 64, radius, 8, false),
     [curve, radius]
   )
+  
+  // Calculate parametric distance uniforms
+  const { len, dir } = useMemo(() => {
+    const len = start.distanceTo(end)
+    const dir = end.clone().sub(start).normalize()
+    return { len, dir }
+  }, [start, end])
+  
+  // Extract source node color (same logic as VisualNode)
+  const nodeColor = useMemo(() => {
+    if (!sourceNode) return new THREE.Vector3(1.0, 1.0, 1.0) // Default white
+    
+    const baseColor = sourceNode.is_pillar ? '#00d8ff' :
+                      sourceNode.entity_type === 'task' ? '#ff9500' :
+                      sourceNode.entity_type === 'project' ? '#4ec5ff' :
+                      sourceNode.entity_type === 'idea' ? '#ffaa00' :
+                      '#b47dff'
+    
+    const color = new THREE.Color(baseColor)
+    return new THREE.Vector3(color.r, color.g, color.b)
+  }, [sourceNode])
   
   useFrame(({ clock }) => {
     if (matRef.current) {
@@ -189,8 +212,12 @@ export function NeuroLink({
         {/* @ts-ignore */}
         <neuroPathMaterial
           ref={matRef}
+          startPos={start}
+          dirNorm={dir}
+          segLen={len}
           baseGlow={0.15}        // faint but visible
-          baseColor={'#ffffff'}  // white filament
+          nodeColor={nodeColor}  // source node color
+          fadeDist={0.4}         // fade distance along tube
           hotColor={'#ffb040'}   // orange pulses
           pulseSpeed={0.6}
         />
@@ -207,14 +234,7 @@ export function NeuroLink({
         />
       </mesh>
       
-      {/* Particle effects */}
-      {showParticles && (
-        <LinkParticles 
-          curve={curve} 
-          count={particleCount} 
-          color={color} 
-        />
-      )}
+      {/* Particle effects disabled to reduce visual noise */}
     </group>
   )
 }

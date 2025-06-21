@@ -23,7 +23,7 @@ import { createNeuralOrbitSystem, createOrbitalSimulation } from '@/utils/simula
 import { generateWeb } from '@/utils/generateWeb';
 import { setGlobalAdjacencyMap } from '@/utils/adjacency';
 import { Dendrites } from '@/components/Dendrites';
-import { NeuralTendril } from '@/components/NeuralTendril';
+import { NeuroLink } from '@/components/NeuroLink';
 // Import material to register it with R3F
 import '@/materials/EdgePulseMaterial';
 
@@ -661,8 +661,7 @@ export default function CanvasScene(props: { className?: string }) {
         <Starfield />
         
         
-        {/* Pulse orbs traveling through synapses */}
-        <Pulses simulationNodes={simulationNodes} />
+        {/* Pulses now integrated into NeuroLink components */}
         
         {/* Legacy connections for reference - can be removed later */}
         
@@ -696,7 +695,7 @@ export default function CanvasScene(props: { className?: string }) {
           );
         })}
         
-        {/* Neural tendril connections - more visible synapses */}
+        {/* NeuroLink connections with unified pulse system */}
         {edges.map(edge => {
           // Use simulationNodes for accurate positioning
           const sourceNode = simulationNodes.find(n => n.id === edge.source) || nodes.find(n => n.id === edge.source)
@@ -705,14 +704,14 @@ export default function CanvasScene(props: { className?: string }) {
           if (!sourceNode || !targetNode) return null
           
           return (
-            <NeuralTendril
+            <NeuroLink
               key={edge.id}
               start={new THREE.Vector3(sourceNode.x || 0, sourceNode.y || 0, sourceNode.z || 0)}
               end={new THREE.Vector3(targetNode.x || 0, targetNode.y || 0, targetNode.z || 0)}
-              color="#4488dd"  // Brighter blue for better visibility
-              opacity={0.6}    // Higher opacity for better visibility
-              thickness={0.035} // Even thicker for better visibility
-              pulseSpeed={0.03}
+              sourceNode={sourceNode}
+              color="#4488dd"
+              radius={0.008}
+              showParticles={false}
             />
           )
         })}

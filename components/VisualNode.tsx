@@ -1,12 +1,13 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Mesh, MeshBasicMaterial, Group } from 'three';
 import * as THREE from 'three';
 import { useLoader } from '@react-three/fiber';
 import { TextureLoader } from 'three';
 import { useGraphStore } from '../stores/graph';
+import { useBrainStore } from '../lib/store';
 import { isConnectedTo } from '../utils/adjacency';
 import { Dendrites } from './Dendrites';
 
@@ -37,9 +38,31 @@ export default function VisualNode({
   const [hovered, setHovered] = useState(false);
   const selectNode = useGraphStore(s => s.selectNode);
   const selectedNodeId = useGraphStore(s => s.selectedNodeId);
+  const isNodeHighlighted = useBrainStore(s => s.isNodeHighlighted);
   
   // Fading logic based on selection
   const faded = selectedNodeId && !isConnectedTo(selectedNodeId, node.id);
+  
+  // Highlight logic for pulse arrivals
+  const highlighted = isNodeHighlighted(node.id);
+  const highlightedNodes = useBrainStore(s => s.highlightedNodes);
+  
+  // Calculate flash intensity based on time remaining
+  const flashIntensity = useMemo(() => {
+    const expiry = highlightedNodes.get(node.id);
+    if (!expiry) return 1.0;
+    
+    const now = Date.now();
+    const timeRemaining = expiry - now;
+    const totalDuration = 2000; // 2 seconds
+    
+    if (timeRemaining <= 0) return 1.0;
+    
+    // Create a pulsing effect that's strongest at the beginning
+    const progress = timeRemaining / totalDuration;
+    const pulse = Math.sin(now * 0.01) * 0.5 + 0.5; // Oscillate between 0-1
+    return 1.0 + (progress * 2.0 * (1.0 + pulse)); // Range: 1.0 to 4.0 with pulsing
+  }, [highlighted, highlightedNodes, node.id]);
   
   // Load halo texture (temporarily disabled for debugging)
   // const haloTexture = useLoader(TextureLoader, '/assets/halo.png');
@@ -132,7 +155,7 @@ export default function VisualNode({
         <meshStandardMaterial
           color={baseColor}
           emissive={baseColor}
-          emissiveIntensity={node.is_pillar ? 8 : 2}  // Increased pillar intensity to 8
+          emissiveIntensity={(node.is_pillar ? 2.5 : 1.5) * flashIntensity}  // Reduced emissive intensity
           toneMapped={false}
         />
       </mesh>

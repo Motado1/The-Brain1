@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-time Debug Test</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Real-time Connection Test</h1>
+    <div id="status">Initializing...</div>
+    <div id="nodeCount">Node count: Loading...</div>
+    <div id="logs"></div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const nodeCountDiv = document.getElementById('nodeCount');
+        const logsDiv = document.getElementById('logs');
+        
+        function log(message) {
+            console.log(message);
+            const p = document.createElement('p');
+            p.textContent = new Date().toISOString() + ': ' + message;
+            logsDiv.appendChild(p);
+        }
+        
+        const supabaseUrl = 'http://127.0.0.1:54321';
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+        
+        const supabase = supabase.createClient(supabaseUrl, supabaseAnonKey);
+        
+        let isConnected = false;
+        
+        log('Starting real-time connection test...');
+        
+        // Test real-time subscription
+        const channel = supabase
+            .channel('debug_visual_nodes')
+            .on('postgres_changes', 
+                { event: '*', schema: 'public', table: 'visual_nodes' },
+                (payload) => {
+                    log('Real-time event received: ' + payload.eventType);
+                }
+            )
+            .subscribe((status) => {
+                log('Subscription status: ' + status);
+                if (status === 'SUBSCRIBED') {
+                    isConnected = true;
+                    statusDiv.textContent = 'Connected ✅';
+                    statusDiv.style.color = 'green';
+                } else if (status === 'CHANNEL_ERROR') {
+                    isConnected = false;
+                    statusDiv.textContent = 'Disconnected ❌';
+                    statusDiv.style.color = 'red';
+                }
+            });
+        
+        // Test node fetching
+        supabase.from('visual_nodes').select('*')
+            .then(res => {
+                if (res.error) {
+                    log('Error loading nodes: ' + res.error.message);
+                    nodeCountDiv.textContent = 'Node count: Error';
+                } else {
+                    log('Loaded ' + res.data.length + ' nodes');
+                    nodeCountDiv.textContent = 'Node count: ' + res.data.length;
+                }
+            })
+            .catch(err => {
+                log('Fetch error: ' + err.message);
+            });
+        
+        // Update status every second
+        setInterval(() => {
+            if (isConnected) {
+                statusDiv.textContent = 'Live sync active ✅';
+                statusDiv.style.color = 'green';
+            } else {
+                statusDiv.textContent = 'Sync disconnected ❌';
+                statusDiv.style.color = 'red';
+            }
+        }, 1000);
+        
+        log('Test initialized');
+    </script>
+</body>
+</html>

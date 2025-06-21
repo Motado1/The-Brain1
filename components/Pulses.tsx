@@ -74,11 +74,14 @@ export default function Pulses({ simulationNodes = [] }: PulsesProps) {
         const curve = edgeCurves.get(pulse.edgeId);
         if (!curve) return null;
         
+        // Determine color based on pulse type
+        const color = pulse.cascaded ? '#ff6600' : '#4ec5ff';
+        
         return (
           <MultiPulseStreak
-            key={pulse.id}
+            key={pulse.edgeId}
             curve={curve}
-            color={pulse.color}
+            color={color}
             thickness={0.008}
           />
         );

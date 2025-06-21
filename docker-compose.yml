@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  the-brain:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=http://host.docker.internal:54321
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+    depends_on:
+      - supabase
+    networks:
+      - brain-network
+
+  # If you want to run Supabase in Docker too (optional)
+  supabase:
+    image: supabase/postgres:15.1.0.117
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "54322:5432"
+    volumes:
+      - supabase_data:/var/lib/postgresql/data
+    networks:
+      - brain-network
+
+volumes:
+  supabase_data:
+
+networks:
+  brain-network:
+    driver: bridge

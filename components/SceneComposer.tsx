@@ -12,7 +12,7 @@ export function SceneComposer({ children }: SceneComposerProps) {
     <>
       {children}
       <EffectComposer>
-        <Bloom intensity={1.0} radius={0.65} mipmapBlur luminanceThreshold={0.06} luminanceSmoothing={0.08}/>
+        <Bloom intensity={0.4} radius={0.65} mipmapBlur luminanceThreshold={0.06} luminanceSmoothing={0.08}/>
       </EffectComposer>
     </>
   );
