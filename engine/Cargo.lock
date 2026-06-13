@@ -3365,6 +3365,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nbe_geometry"
+version = "0.1.0"
+dependencies = [
+ "glam",
+]
+
+[[package]]
 name = "nbe_layout"
 version = "0.1.0"
 dependencies = [
