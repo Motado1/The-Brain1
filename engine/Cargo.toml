@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+# Pinned to the latest stable Bevy (native Rust engine on wgpu -> DirectX 12 on Windows).
+# Default features are kept for P0 reliability; they will be trimmed (drop audio/gltf/gamepad)
+# in a later pass once the render + data pipeline is in place.
+[workspace.dependencies]
+bevy = "0.18"
+
+# Thin, fast builds while iterating; the release profile is tuned for the workstation later.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
