@@ -1,0 +1,13 @@
+[package]
+name = "nbe_layout"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Pure layout math — no external runtime dependencies (std only), so it builds and tests
+# anywhere. nbe_data is only needed for the seeded end-to-end test.
+[dependencies]
+
+[dev-dependencies]
+nbe_data = { path = "../nbe_data" }
