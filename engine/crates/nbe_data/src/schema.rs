@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// Current schema version. Bump and add a new block when the schema evolves.
-const CURRENT_VERSION: i64 = 1;
+const CURRENT_VERSION: i64 = 2;
 
 /// Apply any pending migrations to bring `conn` up to [`CURRENT_VERSION`].
 pub fn migrate(conn: &Connection) -> Result<()> {
@@ -17,6 +17,11 @@ pub fn migrate(conn: &Connection) -> Result<()> {
 
     if version < 1 {
         conn.execute_batch(V1)?;
+    }
+    if version < 2 {
+        conn.execute_batch(V2)?;
+    }
+    if version < CURRENT_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {CURRENT_VERSION};"))?;
     }
 
@@ -88,4 +93,47 @@ SELECT
     COALESCE(SUM(CASE WHEN is_expense = 0 THEN amount_cents ELSE 0 END), 0)   AS income_cents,
     COALESCE(SUM(CASE WHEN is_expense = 1 THEN amount_cents ELSE 0 END), 0)   AS expense_cents
 FROM ledger_facet;
+"#;
+
+/// v2 — personal-training domain: session packages, logged sessions, recurring weekly slots,
+/// and a key/value config store (e.g. the calendar ICS URL).
+const V2: &str = r#"
+CREATE TABLE package (
+    id             TEXT PRIMARY KEY,
+    client_id      TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
+    kind           TEXT NOT NULL,
+    total_sessions INTEGER NOT NULL,
+    price_cents    INTEGER NOT NULL,
+    purchased_at   INTEGER NOT NULL,
+    active         INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX idx_package_client ON package(client_id);
+
+CREATE TABLE session (
+    id          TEXT PRIMARY KEY,
+    client_id   TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
+    package_id  TEXT REFERENCES package(id) ON DELETE SET NULL,
+    occurred_at INTEGER NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'completed',
+    source      TEXT NOT NULL DEFAULT 'manual',
+    external_id TEXT,
+    note        TEXT
+);
+CREATE INDEX idx_session_client ON session(client_id);
+CREATE UNIQUE INDEX idx_session_external ON session(external_id) WHERE external_id IS NOT NULL;
+
+CREATE TABLE slot (
+    id           TEXT PRIMARY KEY,
+    client_id    TEXT NOT NULL REFERENCES entity(id) ON DELETE CASCADE,
+    weekday      INTEGER NOT NULL,
+    start_min    INTEGER NOT NULL,
+    duration_min INTEGER NOT NULL DEFAULT 60,
+    cadence      REAL NOT NULL DEFAULT 1.0
+);
+CREATE INDEX idx_slot_client ON slot(client_id);
+
+CREATE TABLE config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 "#;

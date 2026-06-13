@@ -132,3 +132,49 @@ pub struct LedgerRollup {
     pub income_cents: i64,
     pub expense_cents: i64,
 }
+
+/// A session package a client buys (PT10/PT20/PT30), paid in full up front. Each purchase or
+/// renewal is its own row, so revenue history and per-package progress are preserved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Package {
+    pub id: Id,
+    pub client_id: Id,
+    /// e.g. "PT10" / "PT20" / "PT30".
+    pub kind: String,
+    pub total_sessions: i64,
+    /// Amount received up front, in cents.
+    pub price_cents: i64,
+    pub purchased_at: i64,
+    pub active: bool,
+}
+
+/// A single training session, logged as it occurs ("James Bywater 9/10").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: Id,
+    pub client_id: Id,
+    pub package_id: Option<Id>,
+    pub occurred_at: i64,
+    /// completed | no_show | cancelled
+    pub status: String,
+    /// manual | gcal
+    pub source: String,
+    /// Calendar event UID — makes sync idempotent.
+    pub external_id: Option<String>,
+    pub note: Option<String>,
+}
+
+/// A recurring weekly time slot for a client (the fixed schedule). `cadence` is sessions per
+/// week for this slot (1.0 weekly, 0.5 biweekly, ...), so a client's frequency is the sum of
+/// their slot cadences.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Slot {
+    pub id: Id,
+    pub client_id: Id,
+    /// 0 = Monday .. 6 = Sunday.
+    pub weekday: i64,
+    /// Minutes from midnight.
+    pub start_min: i64,
+    pub duration_min: i64,
+    pub cadence: f64,
+}

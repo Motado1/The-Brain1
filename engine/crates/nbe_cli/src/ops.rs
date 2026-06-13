@@ -4,12 +4,29 @@
 
 use nbe_data::{
     new_id, repo, seed::SeedConfig, snapshot, Activation, CrmFacet, Edge, Entity, Error,
-    KnowledgeFacet, Layer, LedgerFacet, Result,
+    KnowledgeFacet, Layer, LedgerFacet, Package, Result, Session, Slot,
 };
 use nbe_sim::{activation_value, ActivationInputs};
 
 use crate::datetime::{format_date, parse_date};
 use crate::money::{format_cents, parse_dollars};
+use crate::schedule::{fmt_hhmm, parse_hhmm, parse_weekday, weekday_name};
+
+const CALENDAR_URL_KEY: &str = "calendar_ics_url";
+
+fn client_name(db: &nbe_data::Db, id: &str) -> Result<String> {
+    Ok(repo::get_crm(&db.conn, id)?
+        .and_then(|c| c.contact)
+        .unwrap_or_else(|| short(id).to_string()))
+}
+
+/// Infer the session count from a package kind like "PT10".
+fn kind_sessions(kind: &str) -> Result<i64> {
+    let digits: String = kind.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits
+        .parse()
+        .map_err(|_| Error::Msg(format!("cannot infer session count from '{kind}' (use e.g. PT10)")))
+}
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(8)]
@@ -388,6 +405,30 @@ pub fn show(db: &nbe_data::Db, prefix: &str, now: i64) -> Result<String> {
     });
     out.push_str(&format!("  activation: {value:.2}\n"));
 
+    if let Some(p) = repo::active_package(&db.conn, &id)? {
+        let used = repo::sessions_completed(&db.conn, &p.id)?;
+        out.push_str(&format!(
+            "  package: {} {}/{} ({} paid up front)\n",
+            p.kind,
+            used,
+            p.total_sessions,
+            format_cents(p.price_cents)
+        ));
+    }
+    let slots = repo::list_slots_for(&db.conn, &id)?;
+    if !slots.is_empty() {
+        let freq: f64 = slots.iter().map(|s| s.cadence).sum();
+        out.push_str(&format!("  schedule: {freq:.1}/wk\n"));
+        for s in &slots {
+            out.push_str(&format!(
+                "    {} {} {}min\n",
+                weekday_name(s.weekday),
+                fmt_hhmm(s.start_min),
+                s.duration_min
+            ));
+        }
+    }
+
     let back = repo::backlinks(&db.conn, &id)?;
     let outgoing = repo::outgoing(&db.conn, &id)?;
     out.push_str(&format!(
@@ -439,4 +480,264 @@ pub fn import(db: &mut nbe_data::Db, path: &std::path::Path) -> Result<String> {
     let json = std::fs::read_to_string(path)?;
     snapshot::import_json_string(db, &json)?;
     Ok(format!("imported snapshot from {}", path.display()))
+}
+
+// ---- PT: packages, sessions, slots -----------------------------------------------------
+
+pub fn package_add(
+    db: &mut nbe_data::Db,
+    client: &str,
+    kind: &str,
+    price: &str,
+    date: Option<&str>,
+    now: i64,
+) -> Result<String> {
+    let cid = resolve(db, client)?;
+    let total = kind_sessions(kind)?;
+    let price_cents = parse_dollars(price).map_err(Error::Msg)?;
+    let purchased_at = match date {
+        Some(s) => parse_date(s).map_err(Error::Msg)?,
+        None => now,
+    };
+    repo::deactivate_packages(&db.conn, &cid)?;
+    repo::insert_package(
+        &db.conn,
+        &Package {
+            id: new_id(),
+            client_id: cid.clone(),
+            kind: kind.to_string(),
+            total_sessions: total,
+            price_cents,
+            purchased_at,
+            active: true,
+        },
+    )?;
+    Ok(format!(
+        "added {kind} ({total} sessions, {} up front) for {}",
+        format_cents(price_cents),
+        client_name(db, &cid)?
+    ))
+}
+
+pub fn session_log(
+    db: &mut nbe_data::Db,
+    client: &str,
+    date: Option<&str>,
+    status: &str,
+    note: Option<&str>,
+    now: i64,
+) -> Result<String> {
+    let cid = resolve(db, client)?;
+    let occurred_at = match date {
+        Some(s) => parse_date(s).map_err(Error::Msg)?,
+        None => now,
+    };
+    let pkg = repo::active_package(&db.conn, &cid)?;
+    repo::insert_session(
+        &db.conn,
+        &Session {
+            id: new_id(),
+            client_id: cid.clone(),
+            package_id: pkg.as_ref().map(|p| p.id.clone()),
+            occurred_at,
+            status: status.to_string(),
+            source: "manual".into(),
+            external_id: None,
+            note: note.map(str::to_string),
+        },
+    )?;
+
+    let name = client_name(db, &cid)?;
+    match &pkg {
+        Some(p) => {
+            let used = repo::sessions_completed(&db.conn, &p.id)?;
+            let warn = if used >= p.total_sessions {
+                "  ← package complete, time to renew"
+            } else {
+                ""
+            };
+            Ok(format!("logged session for {name} {used}/{}{warn}", p.total_sessions))
+        }
+        None => Ok(format!(
+            "logged session for {name} (no active package — add one with package-add)"
+        )),
+    }
+}
+
+pub fn slot_add(
+    db: &mut nbe_data::Db,
+    client: &str,
+    day: &str,
+    time: &str,
+    duration_min: i64,
+    cadence: f64,
+) -> Result<String> {
+    let cid = resolve(db, client)?;
+    let weekday = parse_weekday(day).map_err(Error::Msg)?;
+    let start_min = parse_hhmm(time).map_err(Error::Msg)?;
+    repo::insert_slot(
+        &db.conn,
+        &Slot {
+            id: new_id(),
+            client_id: cid.clone(),
+            weekday,
+            start_min,
+            duration_min,
+            cadence,
+        },
+    )?;
+    Ok(format!(
+        "added slot {} {} {}min x{cadence} for {}",
+        weekday_name(weekday),
+        fmt_hhmm(start_min),
+        duration_min,
+        client_name(db, &cid)?
+    ))
+}
+
+pub fn slot_list(db: &nbe_data::Db) -> Result<String> {
+    let slots = repo::list_slots(&db.conn)?;
+    if slots.is_empty() {
+        return Ok("no slots yet".into());
+    }
+    let mut out = format!("{} slot(s):\n", slots.len());
+    for s in slots {
+        out.push_str(&format!(
+            "  {} {}  {:<22} {}min  x{}\n",
+            weekday_name(s.weekday),
+            fmt_hhmm(s.start_min),
+            client_name(db, &s.client_id)?,
+            s.duration_min,
+            s.cadence
+        ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+// ---- PT reports ------------------------------------------------------------------------
+
+pub fn report_revenue(db: &nbe_data::Db) -> Result<String> {
+    let cash = repo::revenue_cash_by_month(&db.conn)?;
+    let earned = repo::revenue_earned_by_month(&db.conn)?;
+
+    let mut out = String::from("Revenue — cash received (paid up front):\n");
+    if cash.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    for (ym, c) in &cash {
+        out.push_str(&format!("  {ym}   {}\n", format_cents(*c)));
+    }
+    out.push_str("Revenue — earned (per session delivered):\n");
+    if earned.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    for (ym, e) in &earned {
+        out.push_str(&format!("  {ym}   {}\n", format_cents(e.round() as i64)));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+pub fn report_hours(db: &nbe_data::Db) -> Result<String> {
+    let mut by_day = [0.0_f64; 7];
+    for s in repo::list_slots(&db.conn)? {
+        if (0..7).contains(&s.weekday) {
+            by_day[s.weekday as usize] += (s.duration_min as f64 / 60.0) * s.cadence;
+        }
+    }
+    let total: f64 = by_day.iter().sum();
+    let mut out = format!("Weekly work hours: {total:.1}\n");
+    for (d, h) in by_day.iter().enumerate() {
+        if *h > 0.0 {
+            out.push_str(&format!("  {}  {:.1}h\n", weekday_name(d as i64), h));
+        }
+    }
+    Ok(out.trim_end().to_string())
+}
+
+pub fn report_sessions(db: &nbe_data::Db, now: i64) -> Result<String> {
+    let pkgs = repo::active_packages(&db.conn)?;
+    if pkgs.is_empty() {
+        return Ok("no active packages".into());
+    }
+    let mut out = String::from("Active packages:\n");
+    for p in pkgs {
+        let used = repo::sessions_completed(&db.conn, &p.id)?;
+        let remaining = (p.total_sessions - used).max(0);
+        let freq: f64 = repo::list_slots_for(&db.conn, &p.client_id)?
+            .iter()
+            .map(|s| s.cadence)
+            .sum();
+        let eta = if freq > 0.0 {
+            let weeks = remaining as f64 / freq;
+            let date = now + (weeks * 7.0 * 86_400.0) as i64;
+            format!("renew ~{} ({weeks:.1} wks @ {freq:.1}/wk)", format_date(date))
+        } else {
+            "add slots for renewal ETA".to_string()
+        };
+        out.push_str(&format!(
+            "  {:<20} {} {}/{} — {} left, {}\n",
+            client_name(db, &p.client_id)?,
+            p.kind,
+            used,
+            p.total_sessions,
+            remaining,
+            eta
+        ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+// ---- calendar sync ---------------------------------------------------------------------
+
+pub fn calendar_set_url(db: &nbe_data::Db, url: &str) -> Result<String> {
+    repo::config_set(&db.conn, CALENDAR_URL_KEY, url)?;
+    Ok("saved Google Calendar ICS URL".into())
+}
+
+pub fn calendar_sync(db: &mut nbe_data::Db, file: Option<&std::path::Path>, _now: i64) -> Result<String> {
+    let text = match file {
+        Some(p) => std::fs::read_to_string(p)?,
+        None => {
+            let url = repo::config_get(&db.conn, CALENDAR_URL_KEY)?.ok_or_else(|| {
+                Error::Msg("no calendar URL set — run calendar-set-url, or pass --file".into())
+            })?;
+            let src = nbe_calendar::HttpIcsSource { url };
+            use nbe_calendar::EventSource;
+            src.fetch().map_err(Error::Msg)?
+        }
+    };
+
+    let events = nbe_calendar::parse_ics(&text);
+    let clients: Vec<(String, String)> = repo::list_crm(&db.conn)?
+        .into_iter()
+        .filter_map(|c| c.contact.map(|name| (c.entity_id, name)))
+        .collect();
+    let matched = nbe_calendar::match_events(&events, &clients);
+
+    let mut new_count = 0;
+    for m in &matched {
+        let pkg = repo::active_package(&db.conn, &m.client_id)?;
+        let inserted = repo::insert_session(
+            &db.conn,
+            &Session {
+                id: new_id(),
+                client_id: m.client_id.clone(),
+                package_id: pkg.map(|p| p.id),
+                occurred_at: m.occurred_at,
+                status: "completed".into(),
+                source: "gcal".into(),
+                external_id: Some(m.uid.clone()),
+                note: Some(m.summary.clone()),
+            },
+        )?;
+        if inserted {
+            new_count += 1;
+        }
+    }
+    let unmatched = events.len().saturating_sub(matched.len());
+    Ok(format!(
+        "calendar: {} events, {} matched, {new_count} new session(s) logged, {unmatched} unmatched",
+        events.len(),
+        matched.len()
+    ))
 }

@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 nbe_data = { path = "../nbe_data" }
 nbe_sim = { path = "../nbe_sim" }
+nbe_calendar = { path = "../nbe_calendar" }
 clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]

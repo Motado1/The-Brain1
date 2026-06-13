@@ -95,3 +95,81 @@ fn snapshot_export_import_via_files() {
     ops::import(&mut dst, &snap).unwrap();
     assert_eq!(repo::list_crm(&dst.conn).unwrap().len(), 1);
 }
+
+fn client_id(db: &Db) -> String {
+    repo::list_crm(&db.conn).unwrap()[0].entity_id.clone()
+}
+
+#[test]
+fn pt_package_lifecycle_and_renewal() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James Bywater", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    let mut last = String::new();
+    for i in 0..10 {
+        last = ops::session_log(&mut db, &cid[..8], None, "completed", None, NOW + i * 86_400).unwrap();
+    }
+    assert!(last.contains("10/10"), "{last}");
+    assert!(last.contains("renew"), "should flag renewal: {last}");
+
+    // renew with a bigger package
+    ops::package_add(&mut db, &cid[..8], "PT20", "1900", None, NOW).unwrap();
+    let active = repo::active_package(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(active.kind, "PT20");
+    assert_eq!(active.total_sessions, 20);
+}
+
+#[test]
+fn revenue_report_shows_cash_and_earned() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", Some("2026-06-01"), NOW).unwrap();
+    ops::session_log(&mut db, &cid[..8], Some("2026-06-05"), "completed", None, NOW).unwrap();
+
+    let r = ops::report_revenue(&db).unwrap();
+    assert!(r.contains("cash received"), "{r}");
+    assert!(r.contains("$1000.00"), "full price up front: {r}");
+    assert!(r.contains("earned"), "{r}");
+    assert!(r.contains("$100.00"), "one session of PT10 = $100 earned: {r}");
+}
+
+#[test]
+fn slots_drive_work_hours() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0).unwrap();
+    ops::slot_add(&mut db, &cid[..8], "Thu", "09:00", 30, 1.0).unwrap();
+
+    let h = ops::report_hours(&db).unwrap();
+    assert!(h.contains("Weekly work hours: 1.5"), "{h}");
+    assert!(h.contains("Tue  1.0h"), "{h}");
+    assert!(h.contains("Thu  0.5h"), "{h}");
+}
+
+#[test]
+fn calendar_sync_is_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+    let ics_path = dir.path().join("cal.ics");
+    let ics = "BEGIN:VCALENDAR\r\n\
+               BEGIN:VEVENT\r\n\
+               UID:evt-1\r\n\
+               SUMMARY:James Bywater PT\r\n\
+               DTSTART:20260613T090000Z\r\n\
+               END:VEVENT\r\n\
+               END:VCALENDAR\r\n";
+    std::fs::write(&ics_path, ics).unwrap();
+
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James Bywater", "active", None, None, NOW).unwrap();
+
+    let first = ops::calendar_sync(&mut db, Some(&ics_path), NOW).unwrap();
+    assert!(first.contains("1 matched"), "{first}");
+    assert!(first.contains("1 new"), "{first}");
+
+    let second = ops::calendar_sync(&mut db, Some(&ics_path), NOW).unwrap();
+    assert!(second.contains("0 new"), "re-sync must not duplicate: {second}");
+}

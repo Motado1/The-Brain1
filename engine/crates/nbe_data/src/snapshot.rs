@@ -26,6 +26,14 @@ pub struct Snapshot {
     pub edges: Vec<Edge>,
     pub activations: Vec<Activation>,
     pub layers: Vec<LayerRow>,
+    #[serde(default)]
+    pub packages: Vec<Package>,
+    #[serde(default)]
+    pub sessions: Vec<Session>,
+    #[serde(default)]
+    pub slots: Vec<Slot>,
+    #[serde(default)]
+    pub config: Vec<(String, String)>,
 }
 
 /// Read the entire database into a [`Snapshot`], ordered for determinism.
@@ -133,6 +141,10 @@ pub fn export(db: &Db) -> Result<Snapshot> {
         edges,
         activations,
         layers,
+        packages: repo::list_packages(conn)?,
+        sessions: repo::list_sessions(conn)?,
+        slots: repo::list_slots(conn)?,
+        config: repo::config_all(conn)?,
     })
 }
 
@@ -162,6 +174,18 @@ pub fn import(db: &mut Db, snap: &Snapshot) -> Result<()> {
             "INSERT OR REPLACE INTO layer_assignment (entity_id, layer) VALUES (?1, ?2)",
             params![l.entity_id, l.layer],
         )?;
+    }
+    for p in &snap.packages {
+        repo::insert_package(&tx, p)?;
+    }
+    for s in &snap.sessions {
+        repo::insert_session(&tx, s)?;
+    }
+    for s in &snap.slots {
+        repo::insert_slot(&tx, s)?;
+    }
+    for (k, v) in &snap.config {
+        repo::config_set(&tx, k, v)?;
     }
     tx.commit()?;
     Ok(())

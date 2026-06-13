@@ -103,6 +103,56 @@ enum Command {
         top: usize,
     },
 
+    /// Record a package purchase / renewal (paid up front).
+    PackageAdd {
+        client: String,
+        /// e.g. PT10, PT20, PT30
+        kind: String,
+        #[arg(long)]
+        price: String,
+        /// Purchase date YYYY-MM-DD (defaults to today).
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// Log a training session as it occurs.
+    SessionLog {
+        client: String,
+        #[arg(long)]
+        date: Option<String>,
+        #[arg(long, default_value = "completed")]
+        status: String,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Add a recurring weekly slot.
+    SlotAdd {
+        client: String,
+        #[arg(long)]
+        day: String,
+        #[arg(long)]
+        time: String,
+        #[arg(long, default_value_t = 60)]
+        duration: i64,
+        #[arg(long, default_value_t = 1.0)]
+        cadence: f64,
+    },
+    /// List all weekly slots.
+    SlotList,
+    /// Revenue: cash-in by month + earned over time.
+    ReportRevenue,
+    /// Weekly work hours from slots.
+    ReportHours,
+    /// Active packages: remaining sessions + renewal ETA.
+    ReportSessions,
+    /// Save the Google Calendar private ICS URL.
+    CalendarSetUrl { url: String },
+    /// Pull the calendar and log matching sessions (offline-by-default; runs only on demand).
+    CalendarSync {
+        /// Read a local .ics file instead of the saved URL.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+
     /// Export a JSON snapshot.
     Export { path: PathBuf },
     /// Import a JSON snapshot.
@@ -179,6 +229,32 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         Command::ReportFinance => ops::report_finance(&db),
         Command::ReportRenewals { within } => ops::report_renewals(&db, within, now),
         Command::ReportActivation { top } => ops::report_activation(&db, top, now),
+
+        Command::PackageAdd {
+            client,
+            kind,
+            price,
+            date,
+        } => ops::package_add(&mut db, &client, &kind, &price, date.as_deref(), now),
+        Command::SessionLog {
+            client,
+            date,
+            status,
+            note,
+        } => ops::session_log(&mut db, &client, date.as_deref(), &status, note.as_deref(), now),
+        Command::SlotAdd {
+            client,
+            day,
+            time,
+            duration,
+            cadence,
+        } => ops::slot_add(&mut db, &client, &day, &time, duration, cadence),
+        Command::SlotList => ops::slot_list(&db),
+        Command::ReportRevenue => ops::report_revenue(&db),
+        Command::ReportHours => ops::report_hours(&db),
+        Command::ReportSessions => ops::report_sessions(&db, now),
+        Command::CalendarSetUrl { url } => ops::calendar_set_url(&db, &url),
+        Command::CalendarSync { file } => ops::calendar_sync(&mut db, file.as_deref(), now),
 
         Command::Export { path } => ops::export(&db, &path),
         Command::Import { path } => ops::import(&mut db, &path),

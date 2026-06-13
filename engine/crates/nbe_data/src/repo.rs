@@ -318,3 +318,203 @@ pub fn ledger_by_bucket(conn: &Connection) -> Result<Vec<(String, i64)>> {
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
+
+// ---- packages / sessions / slots / config (v2) -----------------------------------------
+
+fn package_from_row(row: &Row) -> rusqlite::Result<Package> {
+    Ok(Package {
+        id: row.get("id")?,
+        client_id: row.get("client_id")?,
+        kind: row.get("kind")?,
+        total_sessions: row.get("total_sessions")?,
+        price_cents: row.get("price_cents")?,
+        purchased_at: row.get("purchased_at")?,
+        active: row.get("active")?,
+    })
+}
+
+fn session_from_row(row: &Row) -> rusqlite::Result<Session> {
+    Ok(Session {
+        id: row.get("id")?,
+        client_id: row.get("client_id")?,
+        package_id: row.get("package_id")?,
+        occurred_at: row.get("occurred_at")?,
+        status: row.get("status")?,
+        source: row.get("source")?,
+        external_id: row.get("external_id")?,
+        note: row.get("note")?,
+    })
+}
+
+fn slot_from_row(row: &Row) -> rusqlite::Result<Slot> {
+    Ok(Slot {
+        id: row.get("id")?,
+        client_id: row.get("client_id")?,
+        weekday: row.get("weekday")?,
+        start_min: row.get("start_min")?,
+        duration_min: row.get("duration_min")?,
+        cadence: row.get("cadence")?,
+    })
+}
+
+pub fn insert_package(conn: &Connection, p: &Package) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO package
+            (id, client_id, kind, total_sessions, price_cents, purchased_at, active)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            p.id,
+            p.client_id,
+            p.kind,
+            p.total_sessions,
+            p.price_cents,
+            p.purchased_at,
+            p.active
+        ],
+    )?;
+    Ok(())
+}
+
+/// Mark every package for a client inactive (called before a renewal activates a new one).
+pub fn deactivate_packages(conn: &Connection, client_id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE package SET active = 0 WHERE client_id = ?1",
+        params![client_id],
+    )?;
+    Ok(())
+}
+
+pub fn active_package(conn: &Connection, client_id: &str) -> Result<Option<Package>> {
+    Ok(conn
+        .query_row(
+            "SELECT * FROM package WHERE client_id = ?1 AND active = 1
+             ORDER BY purchased_at DESC LIMIT 1",
+            params![client_id],
+            package_from_row,
+        )
+        .optional()?)
+}
+
+pub fn active_packages(conn: &Connection) -> Result<Vec<Package>> {
+    let mut stmt =
+        conn.prepare("SELECT * FROM package WHERE active = 1 ORDER BY client_id")?;
+    let rows = stmt.query_map([], package_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_packages(conn: &Connection) -> Result<Vec<Package>> {
+    let mut stmt = conn.prepare("SELECT * FROM package ORDER BY id")?;
+    let rows = stmt.query_map([], package_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Insert a session, ignoring duplicates by `external_id` (idempotent calendar sync).
+/// Returns `true` when a new row was actually inserted.
+pub fn insert_session(conn: &Connection, s: &Session) -> Result<bool> {
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO session
+            (id, client_id, package_id, occurred_at, status, source, external_id, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            s.id,
+            s.client_id,
+            s.package_id,
+            s.occurred_at,
+            s.status,
+            s.source,
+            s.external_id,
+            s.note
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+pub fn sessions_completed(conn: &Connection, package_id: &str) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM session WHERE package_id = ?1 AND status = 'completed'",
+        params![package_id],
+        |r| r.get(0),
+    )?)
+}
+
+pub fn list_sessions(conn: &Connection) -> Result<Vec<Session>> {
+    let mut stmt = conn.prepare("SELECT * FROM session ORDER BY id")?;
+    let rows = stmt.query_map([], session_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn insert_slot(conn: &Connection, s: &Slot) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO slot
+            (id, client_id, weekday, start_min, duration_min, cadence)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            s.id,
+            s.client_id,
+            s.weekday,
+            s.start_min,
+            s.duration_min,
+            s.cadence
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_slots(conn: &Connection) -> Result<Vec<Slot>> {
+    let mut stmt = conn.prepare("SELECT * FROM slot ORDER BY weekday, start_min, id")?;
+    let rows = stmt.query_map([], slot_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_slots_for(conn: &Connection, client_id: &str) -> Result<Vec<Slot>> {
+    let mut stmt =
+        conn.prepare("SELECT * FROM slot WHERE client_id = ?1 ORDER BY weekday, start_min")?;
+    let rows = stmt.query_map(params![client_id], slot_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn config_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+pub fn config_get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row("SELECT value FROM config WHERE key = ?1", params![key], |r| {
+            r.get::<_, String>(0)
+        })
+        .optional()?)
+}
+
+pub fn config_all(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT key, value FROM config ORDER BY key")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Cash received per month (`YYYY-MM` → cents), dated at each up-front purchase/renewal.
+pub fn revenue_cash_by_month(conn: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT strftime('%Y-%m', purchased_at, 'unixepoch') AS ym, SUM(price_cents) AS cash
+         FROM package GROUP BY ym ORDER BY ym",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Revenue earned per month (`YYYY-MM` → cents), recognized per completed session as
+/// `package price / total sessions`.
+pub fn revenue_earned_by_month(conn: &Connection) -> Result<Vec<(String, f64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT strftime('%Y-%m', s.occurred_at, 'unixepoch') AS ym,
+                SUM(CAST(p.price_cents AS REAL) / p.total_sessions) AS earned
+         FROM session s JOIN package p ON s.package_id = p.id
+         WHERE s.status = 'completed'
+         GROUP BY ym ORDER BY ym",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
