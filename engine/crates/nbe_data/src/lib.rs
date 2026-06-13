@@ -38,6 +38,11 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Generate a fresh random id for a new entity or edge.
+pub fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 /// An open database handle. `conn` is public so repository/seed/snapshot functions (which take
 /// `&Connection`) can be called directly.
 pub struct Db {

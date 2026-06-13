@@ -274,3 +274,47 @@ pub fn ledger_rollup(conn: &Connection) -> Result<LedgerRollup> {
         })
     })?)
 }
+
+/// Every entity id, ordered (deterministic).
+pub fn all_entity_ids(conn: &Connection) -> Result<Vec<Id>> {
+    let mut stmt = conn.prepare("SELECT id FROM entity ORDER BY id")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Entity ids beginning with `prefix` (for short-id resolution, git-style). Wildcards stripped.
+pub fn find_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<Id>> {
+    let cleaned: String = prefix.chars().filter(|c| *c != '%' && *c != '_').collect();
+    let pattern = format!("{cleaned}%");
+    let mut stmt = conn.prepare("SELECT id FROM entity WHERE id LIKE ?1 ORDER BY id")?;
+    let rows = stmt.query_map(params![pattern], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_crm(conn: &Connection) -> Result<Vec<CrmFacet>> {
+    let mut stmt = conn.prepare("SELECT * FROM crm_facet ORDER BY entity_id")?;
+    let rows = stmt.query_map([], crm_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_ledger(conn: &Connection) -> Result<Vec<LedgerFacet>> {
+    let mut stmt = conn.prepare("SELECT * FROM ledger_facet ORDER BY entity_id")?;
+    let rows = stmt.query_map([], ledger_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_knowledge(conn: &Connection) -> Result<Vec<KnowledgeFacet>> {
+    let mut stmt = conn.prepare("SELECT * FROM knowledge_facet ORDER BY entity_id")?;
+    let rows = stmt.query_map([], knowledge_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Sum of ledger amounts grouped by tax bucket, ordered by bucket.
+pub fn ledger_by_bucket(conn: &Connection) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(tax_bucket, '(none)') AS bucket, SUM(amount_cents) AS total
+         FROM ledger_facet GROUP BY bucket ORDER BY bucket",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
