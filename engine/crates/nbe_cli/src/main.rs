@@ -135,6 +135,8 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         top: usize,
     },
+    /// Recompute & persist every entity's activation from its facets (refreshes the renderer).
+    RecomputeActivation,
 
     /// Record a package purchase / renewal (paid up front).
     PackageAdd {
@@ -346,6 +348,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         Command::ReportFinance => ops::report_finance(&db),
         Command::ReportRenewals { within } => ops::report_renewals(&db, within, now),
         Command::ReportActivation { top } => ops::report_activation(&db, top, now),
+        Command::RecomputeActivation => ops::recompute_activation(&mut db, now),
 
         Command::PackageAdd {
             client,

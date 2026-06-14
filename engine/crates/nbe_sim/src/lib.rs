@@ -9,7 +9,9 @@
 //!   activation bump to the destination — the renderer draws these as travelling sparks.
 
 pub mod activation;
+pub mod engine;
 pub mod pulse;
 
 pub use activation::{activation_value, ActivationInputs};
+pub use engine::{Sim, SimParams, Tick};
 pub use pulse::{advance_pulses, apply_arrivals, decay, fire, ready_to_fire, Pulse, SimEdge};

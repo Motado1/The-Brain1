@@ -622,6 +622,44 @@ pub fn stats(db: &nbe_data::Db) -> Result<String> {
     ))
 }
 
+/// Recompute every entity's activation from its current facets (via `nbe_sim`) and persist it,
+/// so the renderer reads up-to-date values. Each activation's threshold + last_fired_at are
+/// preserved. Run after a batch of edits, or before opening the visual engine.
+pub fn recompute_activation(db: &mut nbe_data::Db, now: i64) -> Result<String> {
+    let ids = repo::all_entity_ids(&db.conn)?;
+    let mut hot = 0usize;
+    for id in &ids {
+        let Some(ewf) = repo::entity_with_facets(&db.conn, id)? else {
+            continue;
+        };
+        let value = activation_value(&ActivationInputs {
+            crm: ewf.crm.as_ref(),
+            ledger: ewf.ledger.as_ref(),
+            knowledge: ewf.knowledge.as_ref(),
+            last_fired_at: ewf.activation.as_ref().and_then(|a| a.last_fired_at),
+            now,
+        });
+        let threshold = ewf.activation.as_ref().map(|a| a.threshold).unwrap_or(0.5);
+        let last_fired_at = ewf.activation.as_ref().and_then(|a| a.last_fired_at);
+        repo::upsert_activation(
+            &db.conn,
+            &Activation {
+                entity_id: id.clone(),
+                value,
+                threshold,
+                last_fired_at,
+            },
+        )?;
+        if value >= threshold {
+            hot += 1;
+        }
+    }
+    Ok(format!(
+        "recomputed activation for {} entities ({hot} at/above threshold)",
+        ids.len()
+    ))
+}
+
 pub fn seed_demo(db: &mut nbe_data::Db, entities: usize, edges: usize) -> Result<String> {
     nbe_data::seed::seed(
         db,

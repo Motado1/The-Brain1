@@ -25,12 +25,15 @@ iteration).
   facets + edge + activation + layer + **package/session/slot/config** for PT); repo, seed,
   JSON snapshots. Schema v2 migrates v1.
 - `nbe_layout` — Sugiyama layered layout (barycenter crossing reduction).
-- `nbe_sim` — activation rules + action-potential propagation logic.
+- `nbe_sim` — activation rules + action-potential propagation; **`Sim` engine** (`tick(dt)`:
+  fire → propagate pulses → bump arrivals → decay, with a refractory period) — the GPU-free CPU
+  model the renderer drives one tick/frame (returns what fired/arrived for spark visuals).
 - `nbe_geometry` — deterministic organic curve + mycelial tendril geometry (glam Vec3).
 - `nbe_calendar` — ICS parser + event→client matcher + `EventSource` (ureq HTTPS, `http` feature).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
-  **forecast** = projected monthly income, **retention** = renewal/repeat rates); calendar-sync;
+  **forecast** = projected monthly income, **retention** = renewal/repeat rates);
+  `recompute-activation` (persist fresh activation from facets for the renderer); calendar-sync;
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the
@@ -80,6 +83,9 @@ First-time setup script: `engine/scripts/setup-windows.ps1` (installs Rust/MSVC/
 2. **Zoom-in level-of-detail (the big one):** flying into a client makes it the large cell-body
    neuron with its info-pieces (packages/sessions/linked notes & invoices) spread on **dendrite
    filaments** with **pulses travelling outward**. Uses `nbe_geometry` tendrils + `nbe_sim`.
+   *(The CPU propagation model now exists: `nbe_sim::Sim` — drive one `tick`/frame and render the
+   returned fired/arrived events as sparks. This is P4's logic; the GPU compute-shader version is
+   a later optimization. `recompute-activation` already persists correct activation for display.)*
 3. **Real cross-domain links** (client ↔ its invoices/notes) surfaced as the per-client web.
 4. **Sidebar polish** (search box, selected highlight, domain colors) + connector highlight on select.
 5. **Live calendar test** with the user's real private iCal URL (only verifiable with network).

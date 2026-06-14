@@ -415,6 +415,23 @@ fn retention_reports_renewal_and_repeat_rates() {
 }
 
 #[test]
+fn recompute_activation_refreshes_from_facets() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_add(&mut db, "stale", "x", None, NOW).unwrap();
+    let nid = repo::list_knowledge(&db.conn).unwrap()[0].entity_id.clone();
+    // note_add seeds a static 0.3...
+    assert!((repo::get_activation(&db.conn, &nid).unwrap().unwrap().value - 0.3).abs() < 1e-9);
+
+    // ...but a note with no recall recency is actually cold; recompute corrects it.
+    let msg = ops::recompute_activation(&mut db, NOW).unwrap();
+    assert!(msg.contains("recomputed activation"), "{msg}");
+    assert!(
+        repo::get_activation(&db.conn, &nid).unwrap().unwrap().value.abs() < 1e-9,
+        "note cooled to 0 after recompute"
+    );
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");
