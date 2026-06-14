@@ -21,7 +21,7 @@ use bevy::window::WindowResolution;
 
 use nbe_data::Layer;
 use nbe_geometry::{edge_curve, CurveParams};
-use nbe_layout::{layered_layout, LayoutNode, LayoutParams, NodePos};
+use nbe_layout::{layered_layout, LayoutNode, LayoutParams};
 
 #[derive(Resource)]
 struct DbPath(String);
@@ -105,9 +105,33 @@ fn hash_u64(s: &str) -> u64 {
     h
 }
 
-fn depth(s: &str) -> f32 {
-    let unit = (hash_u64(s) >> 11) as f32 / (1u64 << 53) as f32; // [0,1)
-    unit * 6.0 - 3.0
+// Spread/scatter of the neuron cloud. Layers advance left->right by LAYER_GAP, but each layer's
+// nodes are scattered through a 3D volume (radius SPREAD) so it reads as an organic web rather
+// than rigid vertical columns.
+const LAYER_GAP: f32 = 30.0;
+const SPREAD: f32 = 38.0;
+const X_JITTER: f32 = 8.0;
+
+// Connection culling — fewer, cleaner, node-to-node edges (matches the reference web).
+const EDGE_WEIGHT_MIN: f64 = 0.55;
+const MAX_EDGE_LEN: f32 = 52.0;
+
+/// Deterministic value in [-1, 1] from an id + salt.
+fn rand_unit(id: &str, salt: u64) -> f32 {
+    let mut h = hash_u64(id) ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    h = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    h ^= h >> 32;
+    let u = (h >> 11) as f32 / (1u64 << 53) as f32; // [0,1)
+    u * 2.0 - 1.0
+}
+
+/// Scattered 3D position: x by layer (with jitter), y/z randomly spread per node.
+fn scatter_pos(id: &str, column: u32) -> Vec3 {
+    Vec3::new(
+        column as f32 * LAYER_GAP + rand_unit(id, 1) * X_JITTER,
+        rand_unit(id, 2) * SPREAD,
+        rand_unit(id, 3) * SPREAD,
+    )
 }
 
 /// Emissive colour (HDR, can exceed 1.0 for bloom): hue by layer, white-hot by activation.
@@ -129,14 +153,13 @@ fn node_emissive(activation: f32, column: u32, last: u32) -> LinearRgba {
     )
 }
 
-fn bounds(nodes: &[NodePos]) -> (Vec3, f32) {
-    if nodes.is_empty() {
+fn bounds(points: &[Vec3]) -> (Vec3, f32) {
+    if points.is_empty() {
         return (Vec3::ZERO, 30.0);
     }
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
-    for n in nodes {
-        let p = Vec3::new(n.x, n.y, 0.0);
+    for &p in points {
         min = min.min(p);
         max = max.max(p);
     }
@@ -243,10 +266,8 @@ fn load_graph(
     let layout = layered_layout(&nodes, &edges, &LayoutParams::default());
 
     let mut pos: HashMap<String, Vec3> = HashMap::new();
-    let mut col_of: HashMap<String, u32> = HashMap::new();
     for np in &layout.nodes {
-        pos.insert(np.id.clone(), Vec3::new(np.x, np.y, depth(&np.id)));
-        col_of.insert(np.id.clone(), np.column);
+        pos.insert(np.id.clone(), scatter_pos(&np.id, np.column));
     }
     let activation: HashMap<String, f64> = snap
         .activations
@@ -272,31 +293,37 @@ fn load_graph(
         ));
     }
 
-    // Edges: organic curved synapses, one shared glowing material.
+    // Edges: organic curved synapses. We keep only the stronger, shorter, clearly
+    // node-to-node connections so the web stays clean (not a crisscross of long lines).
     let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.0, 0.0, 0.0, 0.55),
-        emissive: LinearRgba::rgb(0.10, 0.55, 1.25),
+        base_color: Color::srgba(0.0, 0.0, 0.0, 0.4),
+        emissive: LinearRgba::rgb(0.05, 0.30, 0.70),
         alpha_mode: AlphaMode::Blend,
         unlit: false,
         ..default()
     });
     let curve_params = CurveParams {
-        samples: 20,
-        bow: 0.16,
-        sag: 0.04,
-        jitter: 0.02,
+        samples: 18,
+        bow: 0.12,
+        sag: 0.03,
+        jitter: 0.015,
         seed: 0x00E6,
     };
     for e in &snap.edges {
         let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
             continue;
         };
+        // Cull weak and overly long connections to declutter the web.
+        if e.weight < EDGE_WEIGHT_MIN || (b - a).length() > MAX_EDGE_LEN {
+            continue;
+        }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
         let mesh = meshes.add(line_mesh(&curve));
         commands.spawn((Mesh3d(mesh), MeshMaterial3d(edge_mat.clone()), Transform::default()));
     }
 
-    let (center, radius) = bounds(&layout.nodes);
+    let all: Vec<Vec3> = pos.values().copied().collect();
+    let (center, radius) = bounds(&all);
     spawn_camera(&mut commands, center, radius);
 }
 
