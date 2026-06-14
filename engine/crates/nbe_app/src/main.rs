@@ -70,7 +70,10 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.008, 0.015, 0.04)))
         .insert_resource(DbPath(db_path_from_args()))
         .add_systems(Startup, (load_graph, setup_hud))
-        .add_systems(Update, (orbit_camera, update_hud))
+        .add_systems(
+            Update,
+            (orbit_camera, update_hud, animate_breath, animate_sparks),
+        )
         .run();
 }
 
@@ -93,6 +96,50 @@ impl OrbitCamera {
 
 #[derive(Component)]
 struct HudText;
+
+/// Gentle size pulsing per node (organic "breathing").
+#[derive(Component)]
+struct Breath {
+    base: f32,
+    phase: f32,
+    speed: f32,
+}
+
+/// A travelling action-potential mote that runs along an edge polyline.
+#[derive(Component)]
+struct Spark {
+    path: usize,
+    t: f32,
+    speed: f32,
+    rng: u64,
+}
+
+/// The drawn edge polylines, reused by the sparks.
+#[derive(Resource, Default)]
+struct EdgePaths(Vec<Vec<Vec3>>);
+
+/// Cheap LCG -> [0, 1).
+fn lcg(state: &mut u64) -> f32 {
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    ((*state >> 40) as u32) as f32 / (1u32 << 24) as f32
+}
+
+/// Position at parameter `t` in [0,1] along a polyline.
+fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
+    match points.len() {
+        0 => Vec3::ZERO,
+        1 => points[0],
+        n => {
+            let tt = t.clamp(0.0, 1.0) * (n - 1) as f32;
+            let i = tt.floor() as usize;
+            let f = tt - i as f32;
+            let j = (i + 1).min(n - 1);
+            points[i].lerp(points[j], f)
+        }
+    }
+}
 
 // ---- deterministic per-id depth (gives the flat layered graph a bit of 3D / bokeh) ----
 
@@ -303,6 +350,11 @@ fn load_graph(
             Mesh3d(sphere.clone()),
             MeshMaterial3d(mat),
             Transform::from_translation(pos[&np.id]).with_scale(Vec3::splat(r)),
+            Breath {
+                base: r,
+                phase: rand_unit(&np.id, 9) * std::f32::consts::TAU,
+                speed: 0.6 + (rand_unit(&np.id, 10) * 0.5 + 0.5) * 0.8,
+            },
         ));
     }
 
@@ -322,6 +374,7 @@ fn load_graph(
         jitter: 0.015,
         seed: 0x00E6,
     };
+    let mut edge_paths: Vec<Vec<Vec3>> = Vec::new();
     for e in &snap.edges {
         let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
             continue;
@@ -331,9 +384,42 @@ fn load_graph(
             continue;
         }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
-        let mesh = meshes.add(line_mesh(&curve));
-        commands.spawn((Mesh3d(mesh), MeshMaterial3d(edge_mat.clone()), Transform::default()));
+        commands.spawn((
+            Mesh3d(meshes.add(line_mesh(&curve))),
+            MeshMaterial3d(edge_mat.clone()),
+            Transform::default(),
+        ));
+        edge_paths.push(curve);
     }
+
+    // Action-potential sparks: bright amber motes that travel the connections.
+    if !edge_paths.is_empty() {
+        let spark_mat = materials.add(StandardMaterial {
+            base_color: Color::BLACK,
+            emissive: LinearRgba::rgb(7.0, 3.0, 0.6),
+            ..default()
+        });
+        let spark_count = (edge_paths.len() * 3 / 2).clamp(20, 320);
+        let mut s = 0x9E37_79B9u64;
+        for k in 0..spark_count {
+            let path = (lcg(&mut s) * edge_paths.len() as f32) as usize % edge_paths.len();
+            let t = lcg(&mut s);
+            let speed = 0.12 + lcg(&mut s) * 0.35;
+            let p = sample_path(&edge_paths[path], t);
+            commands.spawn((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(spark_mat.clone()),
+                Transform::from_translation(p).with_scale(Vec3::splat(0.3)),
+                Spark {
+                    path,
+                    t,
+                    speed,
+                    rng: s ^ (k as u64 + 1),
+                },
+            ));
+        }
+    }
+    commands.insert_resource(EdgePaths(edge_paths));
 
     let all: Vec<Vec3> = pos.values().copied().collect();
     let (center, radius) = bounds(&all);
@@ -373,13 +459,15 @@ fn update_hud(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, Wi
 }
 
 fn orbit_camera(
+    time: Res<Time>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut query: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
+    let dragging = mouse_buttons.pressed(MouseButton::Left);
     let mut drag = Vec2::ZERO;
-    if mouse_buttons.pressed(MouseButton::Left) {
+    if dragging {
         for ev in motion.read() {
             drag += ev.delta;
         }
@@ -392,11 +480,42 @@ fn orbit_camera(
         scroll += ev.y;
     }
 
+    // Slow idle rotation so the scene feels alive when you're not interacting.
+    let idle = if dragging { 0.0 } else { time.delta_secs() * 0.06 };
+
     for (mut orbit, mut transform) in &mut query {
-        orbit.yaw -= drag.x * 0.005;
+        orbit.yaw += idle - drag.x * 0.005;
         orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
         let factor = (1.0 - scroll * 0.08).clamp(0.5, 2.0);
         orbit.radius = (orbit.radius * factor).clamp(3.0, 600.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
+    }
+}
+
+fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) {
+    let t = time.elapsed_secs();
+    for (b, mut transform) in &mut query {
+        let s = b.base * (1.0 + 0.12 * (t * b.speed + b.phase).sin());
+        transform.scale = Vec3::splat(s);
+    }
+}
+
+fn animate_sparks(
+    time: Res<Time>,
+    paths: Res<EdgePaths>,
+    mut query: Query<(&mut Spark, &mut Transform)>,
+) {
+    if paths.0.is_empty() {
+        return;
+    }
+    let dt = time.delta_secs();
+    for (mut spark, mut transform) in &mut query {
+        spark.t += spark.speed * dt;
+        if spark.t >= 1.0 {
+            spark.t -= 1.0;
+            spark.path = (lcg(&mut spark.rng) * paths.0.len() as f32) as usize % paths.0.len();
+            spark.speed = 0.12 + lcg(&mut spark.rng) * 0.35;
+        }
+        transform.translation = sample_path(&paths.0[spark.path], spark.t);
     }
 }
