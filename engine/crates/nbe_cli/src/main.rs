@@ -48,6 +48,19 @@ enum Command {
     },
     /// List clients.
     ClientList,
+    /// Update a client in place (only the flags you pass change; --renewal "" clears it).
+    ClientUpdate {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        stage: Option<String>,
+        /// Renewal date YYYY-MM-DD, or "" to clear.
+        #[arg(long)]
+        renewal: Option<String>,
+        #[arg(long)]
+        schedule: Option<String>,
+    },
 
     /// Add an invoice (income).
     InvoiceAdd {
@@ -77,6 +90,17 @@ enum Command {
     },
     /// List notes.
     NoteList,
+    /// Update a note in place (title / body / review status).
+    NoteUpdate {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
+        /// draft | reviewed | archived
+        #[arg(long)]
+        status: Option<String>,
+    },
 
     /// Link two entities by short id.
     Link {
@@ -87,6 +111,15 @@ enum Command {
         #[arg(long, default_value_t = 1.0)]
         weight: f64,
     },
+    /// Remove link(s) between two entities (optionally only one --type).
+    Unlink {
+        source: String,
+        target: String,
+        #[arg(long = "type")]
+        edge_type: Option<String>,
+    },
+    /// Delete an entity and everything that cascades from it (irreversible).
+    Delete { id: String },
     /// Show one entity (facets + links).
     Show { id: String },
 
@@ -193,6 +226,21 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             now,
         ),
         Command::ClientList => ops::client_list(&db),
+        Command::ClientUpdate {
+            id,
+            name,
+            stage,
+            renewal,
+            schedule,
+        } => ops::client_update(
+            &mut db,
+            &id,
+            name.as_deref(),
+            stage.as_deref(),
+            renewal.as_deref(),
+            schedule.as_deref(),
+            now,
+        ),
 
         Command::InvoiceAdd {
             amount,
@@ -217,6 +265,18 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             template,
         } => ops::note_add(&mut db, &title, &body, template.as_deref(), now),
         Command::NoteList => ops::note_list(&db),
+        Command::NoteUpdate {
+            id,
+            title,
+            body,
+            status,
+        } => ops::note_update(
+            &mut db,
+            &id,
+            title.as_deref(),
+            body.as_deref(),
+            status.as_deref(),
+        ),
 
         Command::Link {
             source,
@@ -224,6 +284,12 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             edge_type,
             weight,
         } => ops::link(&mut db, &source, &target, &edge_type, weight),
+        Command::Unlink {
+            source,
+            target,
+            edge_type,
+        } => ops::unlink(&mut db, &source, &target, edge_type.as_deref()),
+        Command::Delete { id } => ops::delete(&mut db, &id),
         Command::Show { id } => ops::show(&db, &id, now),
 
         Command::ReportFinance => ops::report_finance(&db),

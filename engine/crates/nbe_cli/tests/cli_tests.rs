@@ -151,6 +151,80 @@ fn slots_drive_work_hours() {
 }
 
 #[test]
+fn client_update_changes_only_supplied_fields() {
+    let mut db = Db::open_in_memory().unwrap();
+    let now = parse_date("2026-06-14").unwrap();
+    ops::client_add(&mut db, "Old Name", "lead", Some("2026-07-01"), None, now).unwrap();
+    let cid = client_id(&db);
+
+    // change just the stage; name + renewal must survive.
+    ops::client_update(&mut db, &cid[..8], None, Some("active"), None, None, now).unwrap();
+    let c = repo::get_crm(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(c.contact.as_deref(), Some("Old Name"));
+    assert_eq!(c.lifecycle_stage, "active");
+    assert!(c.renewal_date.is_some(), "renewal should be untouched");
+
+    // rename and clear the renewal date.
+    ops::client_update(&mut db, &cid[..8], Some("New Name"), None, Some(""), None, now).unwrap();
+    let c = repo::get_crm(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(c.contact.as_deref(), Some("New Name"));
+    assert_eq!(c.renewal_date, None, "empty --renewal clears it");
+}
+
+#[test]
+fn note_update_edits_title_body_and_status() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_add(&mut db, "Draft Title", "first body", None, NOW).unwrap();
+    let id = repo::list_knowledge(&db.conn).unwrap()[0].entity_id.clone();
+
+    ops::note_update(&mut db, &id[..8], Some("Final Title"), None, Some("reviewed")).unwrap();
+    let k = repo::get_knowledge(&db.conn, &id).unwrap().unwrap();
+    assert!(k.body_md.starts_with("# Final Title"), "{}", k.body_md);
+    assert!(k.body_md.contains("first body"), "body preserved: {}", k.body_md);
+    assert_eq!(k.review_status, "reviewed");
+}
+
+#[test]
+fn unlink_removes_an_edge() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_add(&mut db, "A", "a", None, NOW).unwrap();
+    ops::note_add(&mut db, "B", "b", None, NOW).unwrap();
+    let ids: Vec<String> = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .map(|k| k.entity_id)
+        .collect();
+    ops::link(&mut db, &ids[0][..8], &ids[1][..8], "reference", 1.0).unwrap();
+
+    ops::unlink(&mut db, &ids[0][..8], &ids[1][..8], None).unwrap();
+    assert!(repo::outgoing(&db.conn, &ids[0]).unwrap().is_empty());
+    // unlinking again is an error (nothing matches).
+    assert!(ops::unlink(&mut db, &ids[0][..8], &ids[1][..8], None).is_err());
+}
+
+#[test]
+fn delete_cascades_facets_and_edges() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Doomed", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::note_add(&mut db, "Linked note", "x", None, NOW).unwrap();
+    let nid = repo::list_knowledge(&db.conn).unwrap()[0].entity_id.clone();
+    ops::link(&mut db, &cid[..8], &nid[..8], "reference", 1.0).unwrap();
+    // give the client PT history so cascade has something to clear.
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    ops::session_log(&mut db, &cid[..8], None, "completed", None, NOW).unwrap();
+
+    ops::delete(&mut db, &cid[..8]).unwrap();
+
+    assert!(repo::get_crm(&db.conn, &cid).unwrap().is_none(), "facet gone");
+    assert!(repo::backlinks(&db.conn, &nid).unwrap().is_empty(), "edge cascaded");
+    assert!(repo::list_packages(&db.conn).unwrap().is_empty(), "package cascaded");
+    assert!(repo::list_sessions(&db.conn).unwrap().is_empty(), "session cascaded");
+    // the note itself survives.
+    assert!(repo::get_knowledge(&db.conn, &nid).unwrap().is_some());
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

@@ -154,6 +154,37 @@ pub fn insert_edge(conn: &Connection, e: &Edge) -> Result<()> {
     Ok(())
 }
 
+// ---- deletes ----------------------------------------------------------------------------
+
+/// Delete an entity and everything that cascades from it — facets, edges (either direction),
+/// activation, layer, and any PT packages/sessions/slots — via the schema's `ON DELETE CASCADE`
+/// foreign keys. Returns `true` when a row actually existed.
+pub fn delete_entity(conn: &Connection, id: &str) -> Result<bool> {
+    let changed = conn.execute("DELETE FROM entity WHERE id = ?1", params![id])?;
+    Ok(changed > 0)
+}
+
+/// Remove directed edges from `source` to `target`, optionally restricted to one `edge_type`.
+/// Returns the number of edges removed.
+pub fn delete_edges_between(
+    conn: &Connection,
+    source: &str,
+    target: &str,
+    edge_type: Option<&str>,
+) -> Result<usize> {
+    let changed = match edge_type {
+        Some(t) => conn.execute(
+            "DELETE FROM edge WHERE source_id = ?1 AND target_id = ?2 AND edge_type = ?3",
+            params![source, target, t],
+        )?,
+        None => conn.execute(
+            "DELETE FROM edge WHERE source_id = ?1 AND target_id = ?2",
+            params![source, target],
+        )?,
+    };
+    Ok(changed)
+}
+
 // ---- single-row reads -------------------------------------------------------------------
 
 pub fn get_entity(conn: &Connection, id: &str) -> Result<Option<Entity>> {

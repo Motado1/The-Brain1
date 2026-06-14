@@ -30,7 +30,8 @@ iteration).
 - `nbe_calendar` — ICS parser + event→client matcher + `EventSource` (ureq HTTPS, `http` feature).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation); calendar-sync;
-  export/import. Lib+bin, fully tested.
+  export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
+  (cascades facets/edges/packages/sessions/slots). Lib+bin, fully tested.
 - `nbe_app` — **the renderer** (Bevy 0.18 + bevy_egui 0.39). Loads a `--db`, renders the Brain.
 
 ## PT business model (already in the CRM)

@@ -265,6 +265,125 @@ pub fn link(
     Ok(format!("linked {} -> {} [{edge_type}]", short(&s), short(&t)))
 }
 
+/// Remove directed links from `source` to `target` (optionally only one edge type).
+pub fn unlink(
+    db: &mut nbe_data::Db,
+    source: &str,
+    target: &str,
+    edge_type: Option<&str>,
+) -> Result<String> {
+    let s = resolve(db, source)?;
+    let t = resolve(db, target)?;
+    let removed = repo::delete_edges_between(&db.conn, &s, &t, edge_type)?;
+    if removed == 0 {
+        let kind = edge_type.map(|t| format!(" [{t}]")).unwrap_or_default();
+        return Err(Error::Msg(format!(
+            "no link {} -> {}{kind}",
+            short(&s),
+            short(&t)
+        )));
+    }
+    Ok(format!(
+        "removed {removed} link(s) {} -> {}",
+        short(&s),
+        short(&t)
+    ))
+}
+
+// ---- edits / state transitions ---------------------------------------------------------
+
+/// Update an existing client in place. Only the fields supplied are changed; an empty
+/// `--renewal ""` clears the renewal date. Activation is recomputed from the new facet.
+pub fn client_update(
+    db: &mut nbe_data::Db,
+    prefix: &str,
+    name: Option<&str>,
+    stage: Option<&str>,
+    renewal: Option<&str>,
+    schedule: Option<&str>,
+    now: i64,
+) -> Result<String> {
+    let id = resolve(db, prefix)?;
+    let mut crm = repo::get_crm(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg(format!("{} is not a client", short(&id))))?;
+    if let Some(n) = name {
+        crm.contact = Some(n.to_string());
+    }
+    if let Some(s) = stage {
+        crm.lifecycle_stage = s.to_string();
+    }
+    if let Some(s) = schedule {
+        crm.session_schedule = Some(s.to_string());
+    }
+    if let Some(r) = renewal {
+        crm.renewal_date = if r.is_empty() {
+            None
+        } else {
+            Some(parse_date(r).map_err(Error::Msg)?)
+        };
+    }
+    repo::upsert_crm(&db.conn, &crm)?;
+    let act = activation_value(&ActivationInputs {
+        crm: Some(&crm),
+        now,
+        ..Default::default()
+    });
+    set_activation(db, &id, act)?;
+    Ok(format!(
+        "updated client {} ({})",
+        short(&id),
+        crm.contact.as_deref().unwrap_or("(no name)")
+    ))
+}
+
+/// Split a stored note body (`# title\n\n…body`) back into its title and body parts.
+fn split_note(md: &str) -> (String, String) {
+    let mut lines = md.lines();
+    let title = lines.next().unwrap_or("").trim_start_matches("# ").to_string();
+    let body = lines.collect::<Vec<_>>().join("\n");
+    let body = body.strip_prefix('\n').unwrap_or(&body).to_string();
+    (title, body)
+}
+
+/// Update a research note in place — title, body, and/or review status.
+pub fn note_update(
+    db: &mut nbe_data::Db,
+    prefix: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+    status: Option<&str>,
+) -> Result<String> {
+    let id = resolve(db, prefix)?;
+    let mut note = repo::get_knowledge(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg(format!("{} is not a note", short(&id))))?;
+    if title.is_some() || body.is_some() {
+        let (cur_title, cur_body) = split_note(&note.body_md);
+        let new_title = title.unwrap_or(&cur_title);
+        let new_body = body.unwrap_or(&cur_body);
+        note.body_md = format!("# {new_title}\n\n{new_body}");
+    }
+    if let Some(s) = status {
+        note.review_status = s.to_string();
+    }
+    repo::upsert_knowledge(&db.conn, &note)?;
+    Ok(format!("updated note {} [{}]", short(&id), note.review_status))
+}
+
+/// Delete an entity and everything that cascades from it (facets, edges, packages, sessions,
+/// slots). Irreversible — meant for correcting mistakes.
+pub fn delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+    let id = resolve(db, prefix)?;
+    let label = repo::entity_with_facets(&db.conn, &id)?
+        .as_ref()
+        .map(label_for)
+        .unwrap_or_else(|| short(&id).to_string());
+    if repo::delete_entity(&db.conn, &id)? {
+        Ok(format!("deleted {} ({label}) and its links", short(&id)))
+    } else {
+        Err(Error::Msg(format!("nothing to delete at {}", short(&id))))
+    }
+}
+
 // ---- reports ---------------------------------------------------------------------------
 
 pub fn report_finance(db: &nbe_data::Db) -> Result<String> {
