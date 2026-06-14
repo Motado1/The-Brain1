@@ -36,6 +36,8 @@ iteration).
   `recompute-activation` (persist fresh activation from facets for the renderer); calendar-sync;
   **research topics/tags** (`note-tag`/`note-untag`/`topic-list`, `note-list --tag`): a topic is a
   hub neuron in the Research region, notes link to it — so tagged research clusters in the brain;
+  **brush-up/review** (`review [--tag] [--limit]`, `note-review`): least-recently-reviewed notes
+  first; reviewing fires the note's neuron (lights it up, cools over the recall window);
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the

@@ -99,6 +99,15 @@ enum Command {
     NoteUntag { note: String, topic: String },
     /// List all research topics with note counts.
     TopicList,
+    /// Brush-up view: notes least-recently reviewed first (optionally within a topic).
+    Review {
+        #[arg(long)]
+        tag: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+    },
+    /// Mark a note reviewed now (fires its neuron so it lights up, then cools over 7 days).
+    NoteReview { id: String },
     /// Update a note in place (title / body / review status).
     NoteUpdate {
         id: String,
@@ -330,6 +339,8 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         Command::NoteTag { note, topic } => ops::note_tag(&mut db, &note, &topic, now),
         Command::NoteUntag { note, topic } => ops::note_untag(&mut db, &note, &topic),
         Command::TopicList => ops::topic_list(&db),
+        Command::Review { tag, limit } => ops::review(&db, tag.as_deref(), limit, now),
+        Command::NoteReview { id } => ops::note_review(&mut db, &id, now),
         Command::NoteUpdate {
             id,
             title,

@@ -387,6 +387,100 @@ pub fn note_untag(db: &mut nbe_data::Db, note_prefix: &str, topic: &str) -> Resu
     Ok(format!("untagged note {} from '{topic}'", short(&note_id)))
 }
 
+/// Brush-up view: notes (optionally in one topic) ordered least-recently-reviewed first, so the
+/// things you haven't revisited surface to the top. "Reviewed" = the note's neuron last fired
+/// (`activation.last_fired_at`), which the activation rules already treat as recall recency.
+pub fn review(db: &nbe_data::Db, tag: Option<&str>, limit: usize, _now: i64) -> Result<String> {
+    let mut ids: Vec<String> = Vec::new();
+    if let Some(t) = tag {
+        let t = t.trim();
+        let topic_id = repo::topic_by_name(&db.conn, t)?
+            .ok_or_else(|| Error::Msg(format!("no topic '{t}'")))?;
+        for e in repo::backlinks(&db.conn, &topic_id)? {
+            if e.edge_type == "topic" {
+                ids.push(e.source_id);
+            }
+        }
+    } else {
+        for k in repo::list_knowledge(&db.conn)? {
+            if k.template_type.as_deref() != Some("topic") {
+                ids.push(k.entity_id);
+            }
+        }
+    }
+
+    // (last_reviewed, short id, title, status)
+    let mut rows: Vec<(Option<i64>, String, String, String)> = Vec::new();
+    for id in ids {
+        let Some(k) = repo::get_knowledge(&db.conn, &id)? else {
+            continue;
+        };
+        if k.template_type.as_deref() == Some("topic") {
+            continue;
+        }
+        let last = repo::get_activation(&db.conn, &id)?.and_then(|a| a.last_fired_at);
+        let title = k.body_md.lines().next().unwrap_or("").trim_start_matches("# ").to_string();
+        rows.push((last, short(&id).to_string(), title, k.review_status));
+    }
+    if rows.is_empty() {
+        return Ok(match tag {
+            Some(t) => format!("no notes tagged '{}'", t.trim()),
+            None => "no notes to review".into(),
+        });
+    }
+    rows.sort_by(|a, b| {
+        a.0.unwrap_or(i64::MIN)
+            .cmp(&b.0.unwrap_or(i64::MIN))
+            .then(a.2.to_lowercase().cmp(&b.2.to_lowercase()))
+    });
+    rows.truncate(limit.max(1));
+
+    let scope = tag.map(|t| format!(" in '{}'", t.trim())).unwrap_or_default();
+    let mut out = format!(
+        "Brush up{scope} — {} note(s), least-recently reviewed first:\n",
+        rows.len()
+    );
+    for (last, id, title, status) in rows {
+        let when = last.map(format_date).unwrap_or_else(|| "never".into());
+        out.push_str(&format!("  {id}  {title:<32} [{status}]  reviewed {when}\n"));
+    }
+    out.push_str("  (read one: nbe show <id>; mark done: nbe note-review <id>)");
+    Ok(out.trim_end().to_string())
+}
+
+/// Mark a note reviewed now — fires its neuron (sets `last_fired_at`), so it lights up in the
+/// brain and then cools over the recall window, sinking back down the brush-up list over time.
+pub fn note_review(db: &mut nbe_data::Db, note_prefix: &str, now: i64) -> Result<String> {
+    let id = resolve(db, note_prefix)?;
+    let k = repo::get_knowledge(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg(format!("{} is not a note", short(&id))))?;
+    if k.template_type.as_deref() == Some("topic") {
+        return Err(Error::Msg("that entity is a topic, not a note".into()));
+    }
+    let threshold = repo::get_activation(&db.conn, &id)?
+        .map(|a| a.threshold)
+        .unwrap_or(0.5);
+    let value = activation_value(&ActivationInputs {
+        knowledge: Some(&k),
+        last_fired_at: Some(now),
+        now,
+        ..Default::default()
+    });
+    repo::upsert_activation(
+        &db.conn,
+        &Activation {
+            entity_id: id.clone(),
+            value,
+            threshold,
+            last_fired_at: Some(now),
+        },
+    )?;
+    let title = k.body_md.lines().next().unwrap_or("").trim_start_matches("# ");
+    Ok(format!(
+        "reviewed '{title}' — it lights up now and cools over the next 7 days"
+    ))
+}
+
 /// List every topic with how many notes carry it.
 pub fn topic_list(db: &nbe_data::Db) -> Result<String> {
     let topics = repo::list_topics(&db.conn)?;

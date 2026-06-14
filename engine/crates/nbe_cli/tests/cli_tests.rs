@@ -432,6 +432,33 @@ fn recompute_activation_refreshes_from_facets() {
 }
 
 #[test]
+fn brush_up_orders_least_recently_reviewed_first() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_add(&mut db, "Old note", "x", None, NOW).unwrap();
+    ops::note_add(&mut db, "Fresh note", "y", None, NOW).unwrap();
+    let fresh = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|k| k.body_md.starts_with("# Fresh note"))
+        .unwrap()
+        .entity_id;
+
+    // review the fresh one; the other has never been reviewed.
+    ops::note_review(&mut db, &fresh[..8], NOW).unwrap();
+
+    let r = ops::review(&db, None, 5, NOW).unwrap();
+    let old_pos = r.find("Old note").unwrap();
+    let fresh_pos = r.find("Fresh note").unwrap();
+    assert!(old_pos < fresh_pos, "never-reviewed surfaces first: {r}");
+    assert!(r.contains("reviewed never"), "{r}");
+
+    // reviewing fired the neuron: hot now, and timestamped.
+    let act = repo::get_activation(&db.conn, &fresh).unwrap().unwrap();
+    assert!((act.value - 1.0).abs() < 1e-9, "freshly reviewed note is hot");
+    assert_eq!(act.last_fired_at, Some(NOW));
+}
+
+#[test]
 fn notes_tag_into_topics_and_filter() {
     let mut db = Db::open_in_memory().unwrap();
     ops::note_add(&mut db, "Protein timing", "eat protein", None, NOW).unwrap();
