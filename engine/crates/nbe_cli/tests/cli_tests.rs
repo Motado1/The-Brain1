@@ -225,6 +225,50 @@ fn delete_cascades_facets_and_edges() {
 }
 
 #[test]
+fn session_can_be_corrected_and_deleted() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    ops::session_log(&mut db, &cid[..8], None, "completed", None, NOW).unwrap();
+
+    let sid = repo::list_sessions(&db.conn).unwrap()[0].id.clone();
+    // a completed session counts against the package...
+    let pkg = repo::active_package(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(repo::sessions_completed(&db.conn, &pkg.id).unwrap(), 1);
+
+    // ...cancel it and it no longer counts.
+    ops::session_update(&mut db, &sid[..8], None, Some("cancelled"), Some("client ill")).unwrap();
+    assert_eq!(repo::sessions_completed(&db.conn, &pkg.id).unwrap(), 0);
+    let s = repo::get_session(&db.conn, &sid).unwrap().unwrap();
+    assert_eq!(s.status, "cancelled");
+    assert_eq!(s.note.as_deref(), Some("client ill"));
+
+    // delete removes it entirely.
+    ops::session_delete(&mut db, &sid[..8]).unwrap();
+    assert!(repo::list_sessions(&db.conn).unwrap().is_empty());
+}
+
+#[test]
+fn slot_can_be_edited_and_removed() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0).unwrap();
+    let sid = repo::list_slots(&db.conn).unwrap()[0].id.clone();
+
+    // move it to Wednesday and halve the cadence; duration untouched.
+    ops::slot_update(&mut db, &sid[..8], Some("Wed"), None, None, Some(0.5)).unwrap();
+    let s = repo::get_slot(&db.conn, &sid).unwrap().unwrap();
+    assert_eq!(s.weekday, 2, "Wed = 2");
+    assert_eq!(s.cadence, 0.5);
+    assert_eq!(s.duration_min, 60, "duration preserved");
+
+    ops::slot_delete(&mut db, &sid[..8]).unwrap();
+    assert!(repo::list_slots(&db.conn).unwrap().is_empty());
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

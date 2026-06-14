@@ -157,6 +157,24 @@ enum Command {
         #[arg(long)]
         note: Option<String>,
     },
+    /// List sessions (optionally for one client) with their short ids.
+    SessionList {
+        #[arg(long)]
+        client: Option<String>,
+    },
+    /// Correct a logged session by short id (date / status / note).
+    SessionUpdate {
+        id: String,
+        #[arg(long)]
+        date: Option<String>,
+        /// completed | no_show | cancelled
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Delete a logged session by short id.
+    SessionDelete { id: String },
     /// Add a recurring weekly slot.
     SlotAdd {
         client: String,
@@ -171,6 +189,20 @@ enum Command {
     },
     /// List all weekly slots.
     SlotList,
+    /// Edit a weekly slot by short id (day / time / duration / cadence).
+    SlotUpdate {
+        id: String,
+        #[arg(long)]
+        day: Option<String>,
+        #[arg(long)]
+        time: Option<String>,
+        #[arg(long)]
+        duration: Option<i64>,
+        #[arg(long)]
+        cadence: Option<f64>,
+    },
+    /// Delete a weekly slot by short id.
+    SlotDelete { id: String },
     /// Revenue: cash-in by month + earned over time.
     ReportRevenue,
     /// Weekly work hours from slots.
@@ -308,6 +340,20 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             status,
             note,
         } => ops::session_log(&mut db, &client, date.as_deref(), &status, note.as_deref(), now),
+        Command::SessionList { client } => ops::session_list(&db, client.as_deref()),
+        Command::SessionUpdate {
+            id,
+            date,
+            status,
+            note,
+        } => ops::session_update(
+            &mut db,
+            &id,
+            date.as_deref(),
+            status.as_deref(),
+            note.as_deref(),
+        ),
+        Command::SessionDelete { id } => ops::session_delete(&mut db, &id),
         Command::SlotAdd {
             client,
             day,
@@ -316,6 +362,21 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             cadence,
         } => ops::slot_add(&mut db, &client, &day, &time, duration, cadence),
         Command::SlotList => ops::slot_list(&db),
+        Command::SlotUpdate {
+            id,
+            day,
+            time,
+            duration,
+            cadence,
+        } => ops::slot_update(
+            &mut db,
+            &id,
+            day.as_deref(),
+            time.as_deref(),
+            duration,
+            cadence,
+        ),
+        Command::SlotDelete { id } => ops::slot_delete(&mut db, &id),
         Command::ReportRevenue => ops::report_revenue(&db),
         Command::ReportHours => ops::report_hours(&db),
         Command::ReportSessions => ops::report_sessions(&db, now),

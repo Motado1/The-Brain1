@@ -460,6 +460,53 @@ pub fn insert_session(conn: &Connection, s: &Session) -> Result<bool> {
     Ok(changed > 0)
 }
 
+pub fn get_session(conn: &Connection, id: &str) -> Result<Option<Session>> {
+    Ok(conn
+        .query_row("SELECT * FROM session WHERE id = ?1", params![id], session_from_row)
+        .optional()?)
+}
+
+/// Overwrite an existing session row (used by edits, unlike the idempotent `insert_session`).
+pub fn replace_session(conn: &Connection, s: &Session) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO session
+            (id, client_id, package_id, occurred_at, status, source, external_id, note)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            s.id,
+            s.client_id,
+            s.package_id,
+            s.occurred_at,
+            s.status,
+            s.source,
+            s.external_id,
+            s.note
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn delete_session(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(conn.execute("DELETE FROM session WHERE id = ?1", params![id])? > 0)
+}
+
+/// Session ids beginning with `prefix` (for short-id resolution, like entities).
+pub fn find_session_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<Id>> {
+    let cleaned: String = prefix.chars().filter(|c| *c != '%' && *c != '_').collect();
+    let pattern = format!("{cleaned}%");
+    let mut stmt = conn.prepare("SELECT id FROM session WHERE id LIKE ?1 ORDER BY id")?;
+    let rows = stmt.query_map(params![pattern], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// All sessions for one client, most recent first.
+pub fn list_sessions_for(conn: &Connection, client_id: &str) -> Result<Vec<Session>> {
+    let mut stmt =
+        conn.prepare("SELECT * FROM session WHERE client_id = ?1 ORDER BY occurred_at DESC, id")?;
+    let rows = stmt.query_map(params![client_id], session_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub fn sessions_completed(conn: &Connection, package_id: &str) -> Result<i64> {
     Ok(conn.query_row(
         "SELECT COUNT(*) FROM session WHERE package_id = ?1 AND status = 'completed'",
@@ -489,6 +536,25 @@ pub fn insert_slot(conn: &Connection, s: &Slot) -> Result<()> {
         ],
     )?;
     Ok(())
+}
+
+pub fn get_slot(conn: &Connection, id: &str) -> Result<Option<Slot>> {
+    Ok(conn
+        .query_row("SELECT * FROM slot WHERE id = ?1", params![id], slot_from_row)
+        .optional()?)
+}
+
+pub fn delete_slot(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(conn.execute("DELETE FROM slot WHERE id = ?1", params![id])? > 0)
+}
+
+/// Slot ids beginning with `prefix` (for short-id resolution).
+pub fn find_slot_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<Id>> {
+    let cleaned: String = prefix.chars().filter(|c| *c != '%' && *c != '_').collect();
+    let pattern = format!("{cleaned}%");
+    let mut stmt = conn.prepare("SELECT id FROM slot WHERE id LIKE ?1 ORDER BY id")?;
+    let rows = stmt.query_map(params![pattern], |r| r.get::<_, String>(0))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 pub fn list_slots(conn: &Connection) -> Result<Vec<Slot>> {

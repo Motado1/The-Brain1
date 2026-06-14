@@ -42,6 +42,16 @@ fn resolve(db: &nbe_data::Db, prefix: &str) -> Result<String> {
     }
 }
 
+/// Resolve a list of candidate ids (from a prefix lookup) to exactly one, or a helpful error.
+fn resolve_one(ids: Vec<String>, prefix: &str, kind: &str) -> Result<String> {
+    let mut ids = ids;
+    match ids.len() {
+        1 => Ok(ids.remove(0)),
+        0 => Err(Error::Msg(format!("no {kind} matches id '{prefix}'"))),
+        n => Err(Error::Msg(format!("'{prefix}' is ambiguous ({n} {kind}s match)"))),
+    }
+}
+
 fn new_entity(db: &nbe_data::Db, now: i64) -> Result<String> {
     let id = new_id();
     repo::insert_entity(
@@ -722,7 +732,8 @@ pub fn slot_list(db: &nbe_data::Db) -> Result<String> {
     let mut out = format!("{} slot(s):\n", slots.len());
     for s in slots {
         out.push_str(&format!(
-            "  {} {}  {:<22} {}min  x{}\n",
+            "  {}  {} {}  {:<22} {}min  x{}\n",
+            short(&s.id),
             weekday_name(s.weekday),
             fmt_hhmm(s.start_min),
             client_name(db, &s.client_id)?,
@@ -731,6 +742,118 @@ pub fn slot_list(db: &nbe_data::Db) -> Result<String> {
         ));
     }
     Ok(out.trim_end().to_string())
+}
+
+// ---- session / slot edits --------------------------------------------------------------
+
+/// List a client's sessions (or all sessions) with their short ids for editing.
+pub fn session_list(db: &nbe_data::Db, client: Option<&str>) -> Result<String> {
+    let sessions = match client {
+        Some(c) => {
+            let cid = resolve(db, c)?;
+            repo::list_sessions_for(&db.conn, &cid)?
+        }
+        None => repo::list_sessions(&db.conn)?,
+    };
+    if sessions.is_empty() {
+        return Ok("no sessions yet".into());
+    }
+    let mut out = format!("{} session(s):\n", sessions.len());
+    for s in sessions {
+        let note = s.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
+        out.push_str(&format!(
+            "  {}  {}  {:<20} [{}]{}\n",
+            short(&s.id),
+            format_date(s.occurred_at),
+            client_name(db, &s.client_id)?,
+            s.status,
+            note,
+        ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+/// Correct a logged session in place — date, status (completed|no_show|cancelled), and/or note.
+pub fn session_update(
+    db: &mut nbe_data::Db,
+    prefix: &str,
+    date: Option<&str>,
+    status: Option<&str>,
+    note: Option<&str>,
+) -> Result<String> {
+    let id = resolve_one(repo::find_session_ids_by_prefix(&db.conn, prefix)?, prefix, "session")?;
+    let mut session = repo::get_session(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg("session vanished".into()))?;
+    if let Some(d) = date {
+        session.occurred_at = parse_date(d).map_err(Error::Msg)?;
+    }
+    if let Some(s) = status {
+        session.status = s.to_string();
+    }
+    if let Some(n) = note {
+        session.note = Some(n.to_string());
+    }
+    repo::replace_session(&db.conn, &session)?;
+    Ok(format!(
+        "updated session {} for {} [{}]",
+        short(&id),
+        client_name(db, &session.client_id)?,
+        session.status
+    ))
+}
+
+pub fn session_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+    let id = resolve_one(repo::find_session_ids_by_prefix(&db.conn, prefix)?, prefix, "session")?;
+    if repo::delete_session(&db.conn, &id)? {
+        Ok(format!("deleted session {}", short(&id)))
+    } else {
+        Err(Error::Msg(format!("nothing to delete at {}", short(&id))))
+    }
+}
+
+/// Edit a recurring slot in place — weekday, time, duration, and/or cadence.
+pub fn slot_update(
+    db: &mut nbe_data::Db,
+    prefix: &str,
+    day: Option<&str>,
+    time: Option<&str>,
+    duration_min: Option<i64>,
+    cadence: Option<f64>,
+) -> Result<String> {
+    let id = resolve_one(repo::find_slot_ids_by_prefix(&db.conn, prefix)?, prefix, "slot")?;
+    let mut slot = repo::get_slot(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg("slot vanished".into()))?;
+    if let Some(d) = day {
+        slot.weekday = parse_weekday(d).map_err(Error::Msg)?;
+    }
+    if let Some(t) = time {
+        slot.start_min = parse_hhmm(t).map_err(Error::Msg)?;
+    }
+    if let Some(d) = duration_min {
+        slot.duration_min = d;
+    }
+    if let Some(c) = cadence {
+        slot.cadence = c;
+    }
+    repo::insert_slot(&db.conn, &slot)?;
+    Ok(format!(
+        "updated slot {} — {} {} {}min x{} for {}",
+        short(&id),
+        weekday_name(slot.weekday),
+        fmt_hhmm(slot.start_min),
+        slot.duration_min,
+        slot.cadence,
+        client_name(db, &slot.client_id)?
+    ))
+}
+
+pub fn slot_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+    let id = resolve_one(repo::find_slot_ids_by_prefix(&db.conn, prefix)?, prefix, "slot")?;
+    if repo::delete_slot(&db.conn, &id)? {
+        Ok(format!("deleted slot {}", short(&id)))
+    } else {
+        Err(Error::Msg(format!("nothing to delete at {}", short(&id))))
+    }
 }
 
 // ---- PT reports ------------------------------------------------------------------------
