@@ -63,17 +63,16 @@ impl Cluster {
         }
     }
 
-    /// Centre of this cluster's region of space (the three floating networks).
+    /// Nominal centre of this cluster's region within the brain.
     fn center(self) -> Vec3 {
         match self {
-            Cluster::Crm => Vec3::new(-230.0, 0.0, 70.0),
-            Cluster::Research => Vec3::new(230.0, 0.0, 70.0),
-            Cluster::Financial => Vec3::new(0.0, 0.0, -210.0),
+            Cluster::Crm => Vec3::new(-48.0, 0.0, 0.0),       // left hemisphere
+            Cluster::Research => Vec3::new(48.0, 0.0, 0.0),   // right hemisphere
+            Cluster::Financial => Vec3::new(0.0, -52.0, -30.0), // lower-central mass
         }
     }
 }
 
-const CLUSTER_RADIUS: f32 = 75.0;
 const EDGE_WEIGHT_MIN: f64 = 0.55;
 
 // ---- navigation registry + camera target ----------------------------------------------
@@ -241,6 +240,21 @@ fn fib_dir(i: usize, n: usize) -> Vec3 {
     Vec3::new(r * th.cos(), y, r * th.sin())
 }
 
+/// Place a node inside its cluster's region of the brain: two hemispheres (CRM left,
+/// Research right) + a lower-central mass (Financial), with a shell bias so nodes gather
+/// near the cortex surface like the reference brain.
+fn brain_pos(cluster: Cluster, i: usize, n: usize, id: &str) -> Vec3 {
+    let dir = fib_dir(i, n);
+    let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * 4.0;
+    let (center, radii, shell) = match cluster {
+        Cluster::Crm => (Vec3::new(-48.0, 0.0, 0.0), Vec3::new(50.0, 70.0, 85.0), 0.5),
+        Cluster::Research => (Vec3::new(48.0, 0.0, 0.0), Vec3::new(50.0, 70.0, 85.0), 0.5),
+        Cluster::Financial => (Vec3::new(0.0, -52.0, -30.0), Vec3::new(42.0, 34.0, 44.0), 0.4),
+    };
+    let rr = shell + (1.0 - shell) * rand01(id, 11);
+    center + (dir * rr) * radii + jitter
+}
+
 fn lcg(state: &mut u64) -> f32 {
     *state = state
         .wrapping_mul(6364136223846793005)
@@ -272,16 +286,18 @@ fn money(cents: i64) -> String {
     )
 }
 
-/// Emissive (HDR) for a node: cluster hue, toward white-hot with activation.
+/// Emissive (HDR) for a node: cluster hue at rest, shifting to a warm amber hotspot as it
+/// activates (matching the bright orange clusters in the reference brain).
 fn node_emissive(cluster: Cluster, activation: f32) -> LinearRgba {
-    let (r, g, b) = cluster.base_color();
-    let t = activation.clamp(0.0, 1.0) * 0.85;
-    let toward_white = |c: f32| c + (1.0 - c) * t;
-    let intensity = 1.0 + activation * 7.0;
+    let (br, bg, bb) = cluster.base_color();
+    let (hr, hg, hb) = (1.0, 0.72, 0.32); // warm amber-white hot
+    let t = activation.clamp(0.0, 1.0);
+    let mix = |b: f32, h: f32| b + (h - b) * t * 0.9;
+    let intensity = 0.9 + activation * 7.0;
     LinearRgba::rgb(
-        toward_white(r) * intensity,
-        toward_white(g) * intensity,
-        toward_white(b) * intensity,
+        mix(br, hr) * intensity,
+        mix(bg, hg) * intensity,
+        mix(bb, hb) * intensity,
     )
 }
 
@@ -401,20 +417,12 @@ fn load_graph(
         ids.sort();
     }
 
-    // Position each cluster's nodes inside a ball at the cluster centre.
+    // Position each cluster's nodes inside its region of the brain.
     let mut pos: HashMap<String, Vec3> = HashMap::new();
     for (&cluster, ids) in &groups {
-        let center = cluster.center();
         let n = ids.len().max(1);
         for (i, id) in ids.iter().enumerate() {
-            let dir = fib_dir(i, n);
-            let radius = CLUSTER_RADIUS * rand01(id, 11).cbrt();
-            let jitter = Vec3::new(
-                rand_unit(id, 12),
-                rand_unit(id, 13),
-                rand_unit(id, 14),
-            ) * (CLUSTER_RADIUS * 0.05);
-            pos.insert(id.clone(), center + dir * radius + jitter);
+            pos.insert(id.clone(), brain_pos(cluster, i, n, id));
         }
     }
 
