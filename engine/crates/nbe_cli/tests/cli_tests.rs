@@ -141,8 +141,8 @@ fn slots_drive_work_hours() {
     let mut db = Db::open_in_memory().unwrap();
     ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
     let cid = client_id(&db);
-    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0).unwrap();
-    ops::slot_add(&mut db, &cid[..8], "Thu", "09:00", 30, 1.0).unwrap();
+    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0, NOW).unwrap();
+    ops::slot_add(&mut db, &cid[..8], "Thu", "09:00", 30, 1.0, NOW).unwrap();
 
     let h = ops::report_hours(&db).unwrap();
     assert!(h.contains("Weekly work hours: 1.5"), "{h}");
@@ -238,14 +238,14 @@ fn session_can_be_corrected_and_deleted() {
     assert_eq!(repo::sessions_completed(&db.conn, &pkg.id).unwrap(), 1);
 
     // ...cancel it and it no longer counts.
-    ops::session_update(&mut db, &sid[..8], None, Some("cancelled"), Some("client ill")).unwrap();
+    ops::session_update(&mut db, &sid[..8], None, Some("cancelled"), Some("client ill"), NOW).unwrap();
     assert_eq!(repo::sessions_completed(&db.conn, &pkg.id).unwrap(), 0);
     let s = repo::get_session(&db.conn, &sid).unwrap().unwrap();
     assert_eq!(s.status, "cancelled");
     assert_eq!(s.note.as_deref(), Some("client ill"));
 
     // delete removes it entirely.
-    ops::session_delete(&mut db, &sid[..8]).unwrap();
+    ops::session_delete(&mut db, &sid[..8], NOW).unwrap();
     assert!(repo::list_sessions(&db.conn).unwrap().is_empty());
 }
 
@@ -254,17 +254,17 @@ fn slot_can_be_edited_and_removed() {
     let mut db = Db::open_in_memory().unwrap();
     ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
     let cid = client_id(&db);
-    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0).unwrap();
+    ops::slot_add(&mut db, &cid[..8], "Tue", "09:00", 60, 1.0, NOW).unwrap();
     let sid = repo::list_slots(&db.conn).unwrap()[0].id.clone();
 
     // move it to Wednesday and halve the cadence; duration untouched.
-    ops::slot_update(&mut db, &sid[..8], Some("Wed"), None, None, Some(0.5)).unwrap();
+    ops::slot_update(&mut db, &sid[..8], Some("Wed"), None, None, Some(0.5), NOW).unwrap();
     let s = repo::get_slot(&db.conn, &sid).unwrap().unwrap();
     assert_eq!(s.weekday, 2, "Wed = 2");
     assert_eq!(s.cadence, 0.5);
     assert_eq!(s.duration_min, 60, "duration preserved");
 
-    ops::slot_delete(&mut db, &sid[..8]).unwrap();
+    ops::slot_delete(&mut db, &sid[..8], NOW).unwrap();
     assert!(repo::list_slots(&db.conn).unwrap().is_empty());
 }
 
@@ -274,7 +274,7 @@ fn agenda_lists_days_and_marks_logged() {
     let monday = parse_date("2026-06-15").unwrap(); // a Monday
     ops::client_add(&mut db, "Acme", "active", None, None, monday).unwrap();
     let cid = client_id(&db);
-    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0).unwrap();
+    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0, monday).unwrap();
 
     // before logging: client appears, not yet ✓.
     let before = ops::agenda(&db, 1, monday).unwrap();
@@ -309,10 +309,68 @@ fn deleting_active_package_restores_previous() {
         .into_iter()
         .find(|p| p.kind == "PT20")
         .unwrap();
-    let msg = ops::package_delete(&mut db, &pt20.id[..8]).unwrap();
+    let msg = ops::package_delete(&mut db, &pt20.id[..8], NOW).unwrap();
     assert!(msg.contains("reactivated previous PT10"), "{msg}");
     assert_eq!(repo::active_package(&db.conn, &cid).unwrap().unwrap().kind, "PT10");
     assert_eq!(repo::list_packages(&db.conn).unwrap().len(), 1);
+}
+
+#[test]
+fn package_add_projects_renewal_from_cadence() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0, NOW).unwrap();
+
+    // PT10 at 1/wk depletes in 10 weeks -> renewal_date projected to NOW + 70 days.
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    let week = 7 * 86_400;
+    let crm = repo::get_crm(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(crm.renewal_date, Some(NOW + 10 * week), "projected 10 weeks out");
+
+    // logging 4 sessions leaves 6 -> renewal moves to NOW + 6 weeks.
+    for _ in 0..4 {
+        ops::session_log(&mut db, &cid[..8], None, "completed", None, NOW).unwrap();
+    }
+    let crm = repo::get_crm(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(crm.renewal_date, Some(NOW + 6 * week), "renewal advances as sessions burn");
+}
+
+#[test]
+fn package_add_without_slots_cannot_project() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Solo", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    let msg = ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    assert!(msg.contains("add slots"), "{msg}");
+    assert_eq!(repo::get_crm(&db.conn, &cid).unwrap().unwrap().renewal_date, None);
+}
+
+#[test]
+fn forecast_projects_up_front_income_by_month() {
+    let mut db = Db::open_in_memory().unwrap();
+    let jan = parse_date("2026-01-01").unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, jan).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0, jan).unwrap();
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", Some("2026-01-01"), jan).unwrap();
+
+    // 1/wk + PT10 => renew every 10 weeks (70d): 2026-03-12 and 2026-05-21 fall in a 6mo window.
+    let f = ops::report_forecast(&db, 6, jan).unwrap();
+    assert!(f.contains("2026-03   $1000.00"), "{f}");
+    assert!(f.contains("2026-05   $1000.00"), "{f}");
+    assert!(f.contains("total $2000.00"), "{f}");
+}
+
+#[test]
+fn forecast_flags_clients_without_slots() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "NoSlots", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    let f = ops::report_forecast(&db, 6, NOW).unwrap();
+    assert!(f.contains("without slots"), "{f}");
+    assert!(f.contains("total $0.00"), "nothing projectable: {f}");
 }
 
 #[test]

@@ -53,6 +53,12 @@ pub fn weekday_from_epoch(epoch: i64) -> i64 {
     (epoch.div_euclid(86_400) + 3).rem_euclid(7)
 }
 
+/// `(year, month)` (month 1..=12) for a unix timestamp — used to bucket income by month.
+pub fn year_month(epoch: i64) -> (i64, u32) {
+    let (y, m, _) = civil_from_days(epoch.div_euclid(86_400));
+    (y, m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

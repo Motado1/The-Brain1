@@ -29,7 +29,8 @@ iteration).
 - `nbe_geometry` — deterministic organic curve + mycelial tendril geometry (glam Vec3).
 - `nbe_calendar` — ICS parser + event→client matcher + `EventSource` (ureq HTTPS, `http` feature).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
-  notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**); calendar-sync;
+  notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
+  **forecast** = projected monthly income); calendar-sync;
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the
@@ -40,7 +41,10 @@ iteration).
 Clients buy packages **PT10/20/30** (=N sessions), **paid in full up front** (lumpy cash).
 Sessions logged as they occur ("James Bywater 9/10"); renew when depleted. Frequency 0.5–3×/wk
 via weekly **slots** → drives work-hours + renewal ETA. Revenue tracked **both** as cash-in-by-
-month and earned-per-session.
+month and earned-per-session. **Renewal auto-projection:** a client's `renewal_date` is re-derived
+(from active-package remaining ÷ slot cadence) on every package/session/slot change, so renewals +
+the **forecast** report stay live; `report_forecast` projects future up-front cash by month assuming
+like-for-like renewal.
 
 ## Visual direction (LOCKED from user's reference images)
 - **Galaxy/overview = one Brain silhouette** (not separate clusters). Two hemispheres

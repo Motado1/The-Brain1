@@ -8,7 +8,7 @@ use nbe_data::{
 };
 use nbe_sim::{activation_value, ActivationInputs};
 
-use crate::datetime::{format_date, parse_date};
+use crate::datetime::{format_date, parse_date, year_month};
 use crate::money::{format_cents, parse_dollars};
 use crate::schedule::{fmt_hhmm, parse_hhmm, parse_weekday, weekday_name};
 
@@ -75,6 +75,41 @@ fn set_activation(db: &nbe_data::Db, id: &str, value: f64) -> Result<()> {
             last_fired_at: None,
         },
     )
+}
+
+// ---- renewal / income projection -------------------------------------------------------
+
+/// Projected calendar time at which `remaining` sessions run out, given a weekly `freq`
+/// (sessions/week). Anchored at `from`. Returns `None` when there's nothing to project from.
+fn project_depletion(from: i64, remaining: i64, freq: f64) -> Option<i64> {
+    if freq <= 0.0 {
+        return None;
+    }
+    let weeks = remaining.max(0) as f64 / freq;
+    Some(from + (weeks * 7.0 * 86_400.0) as i64)
+}
+
+/// Re-derive and store a client's `renewal_date` as the projected depletion of their active
+/// package at the current slot cadence. Leaves any existing (e.g. manually set) date untouched
+/// when there's no active package or no slots to project from. Returns the new date if set.
+fn recompute_renewal(db: &nbe_data::Db, client_id: &str, now: i64) -> Result<Option<i64>> {
+    let Some(pkg) = repo::active_package(&db.conn, client_id)? else {
+        return Ok(None);
+    };
+    let freq: f64 = repo::list_slots_for(&db.conn, client_id)?
+        .iter()
+        .map(|s| s.cadence)
+        .sum();
+    let used = repo::sessions_completed(&db.conn, &pkg.id)?;
+    let remaining = pkg.total_sessions - used;
+    let Some(date) = project_depletion(now, remaining, freq) else {
+        return Ok(None);
+    };
+    if let Some(mut crm) = repo::get_crm(&db.conn, client_id)? {
+        crm.renewal_date = Some(date);
+        repo::upsert_crm(&db.conn, &crm)?;
+    }
+    Ok(Some(date))
 }
 
 // ---- clients ---------------------------------------------------------------------------
@@ -641,8 +676,11 @@ pub fn package_add(
             active: true,
         },
     )?;
+    let renews = recompute_renewal(db, &cid, purchased_at)?
+        .map(|d| format!("; renews ~{}", format_date(d)))
+        .unwrap_or_else(|| " (add slots to project renewal)".into());
     Ok(format!(
-        "added {kind} ({total} sessions, {} up front) for {}",
+        "added {kind} ({total} sessions, {} up front) for {}{renews}",
         format_cents(price_cents),
         client_name(db, &cid)?
     ))
@@ -680,7 +718,7 @@ pub fn package_list(db: &nbe_data::Db, client: Option<&str>) -> Result<String> {
 /// Delete a package by short id. Sessions keep their history (their `package_id` is set NULL by
 /// the schema). Deleting the *active* package restores the client's previous package as active,
 /// so undoing a mistaken renewal puts things back.
-pub fn package_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+pub fn package_delete(db: &mut nbe_data::Db, prefix: &str, now: i64) -> Result<String> {
     let id = resolve_one(repo::find_package_ids_by_prefix(&db.conn, prefix)?, prefix, "package")?;
     let pkg = repo::get_package(&db.conn, &id)?
         .ok_or_else(|| Error::Msg("package vanished".into()))?;
@@ -696,6 +734,7 @@ pub fn package_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
             repo::set_package_active(&db.conn, &prev.id, true)?;
             msg.push_str(&format!("; reactivated previous {}", prev.kind));
         }
+        recompute_renewal(db, &pkg.client_id, now)?;
     }
     Ok(msg)
 }
@@ -727,6 +766,7 @@ pub fn session_log(
             note: note.map(str::to_string),
         },
     )?;
+    recompute_renewal(db, &cid, now)?;
 
     let name = client_name(db, &cid)?;
     match &pkg {
@@ -745,6 +785,7 @@ pub fn session_log(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn slot_add(
     db: &mut nbe_data::Db,
     client: &str,
@@ -752,6 +793,7 @@ pub fn slot_add(
     time: &str,
     duration_min: i64,
     cadence: f64,
+    now: i64,
 ) -> Result<String> {
     let cid = resolve(db, client)?;
     let weekday = parse_weekday(day).map_err(Error::Msg)?;
@@ -767,6 +809,7 @@ pub fn slot_add(
             cadence,
         },
     )?;
+    recompute_renewal(db, &cid, now)?;
     Ok(format!(
         "added slot {} {} {}min x{cadence} for {}",
         weekday_name(weekday),
@@ -832,6 +875,7 @@ pub fn session_update(
     date: Option<&str>,
     status: Option<&str>,
     note: Option<&str>,
+    now: i64,
 ) -> Result<String> {
     let id = resolve_one(repo::find_session_ids_by_prefix(&db.conn, prefix)?, prefix, "session")?;
     let mut session = repo::get_session(&db.conn, &id)?
@@ -846,6 +890,7 @@ pub fn session_update(
         session.note = Some(n.to_string());
     }
     repo::replace_session(&db.conn, &session)?;
+    recompute_renewal(db, &session.client_id, now)?;
     Ok(format!(
         "updated session {} for {} [{}]",
         short(&id),
@@ -854,9 +899,13 @@ pub fn session_update(
     ))
 }
 
-pub fn session_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+pub fn session_delete(db: &mut nbe_data::Db, prefix: &str, now: i64) -> Result<String> {
     let id = resolve_one(repo::find_session_ids_by_prefix(&db.conn, prefix)?, prefix, "session")?;
+    let client_id = repo::get_session(&db.conn, &id)?.map(|s| s.client_id);
     if repo::delete_session(&db.conn, &id)? {
+        if let Some(cid) = client_id {
+            recompute_renewal(db, &cid, now)?;
+        }
         Ok(format!("deleted session {}", short(&id)))
     } else {
         Err(Error::Msg(format!("nothing to delete at {}", short(&id))))
@@ -864,6 +913,7 @@ pub fn session_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
 }
 
 /// Edit a recurring slot in place — weekday, time, duration, and/or cadence.
+#[allow(clippy::too_many_arguments)]
 pub fn slot_update(
     db: &mut nbe_data::Db,
     prefix: &str,
@@ -871,6 +921,7 @@ pub fn slot_update(
     time: Option<&str>,
     duration_min: Option<i64>,
     cadence: Option<f64>,
+    now: i64,
 ) -> Result<String> {
     let id = resolve_one(repo::find_slot_ids_by_prefix(&db.conn, prefix)?, prefix, "slot")?;
     let mut slot = repo::get_slot(&db.conn, &id)?
@@ -888,6 +939,7 @@ pub fn slot_update(
         slot.cadence = c;
     }
     repo::insert_slot(&db.conn, &slot)?;
+    recompute_renewal(db, &slot.client_id, now)?;
     Ok(format!(
         "updated slot {} — {} {} {}min x{} for {}",
         short(&id),
@@ -899,9 +951,13 @@ pub fn slot_update(
     ))
 }
 
-pub fn slot_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+pub fn slot_delete(db: &mut nbe_data::Db, prefix: &str, now: i64) -> Result<String> {
     let id = resolve_one(repo::find_slot_ids_by_prefix(&db.conn, prefix)?, prefix, "slot")?;
+    let client_id = repo::get_slot(&db.conn, &id)?.map(|s| s.client_id);
     if repo::delete_slot(&db.conn, &id)? {
+        if let Some(cid) = client_id {
+            recompute_renewal(db, &cid, now)?;
+        }
         Ok(format!("deleted slot {}", short(&id)))
     } else {
         Err(Error::Msg(format!("nothing to delete at {}", short(&id))))
@@ -927,6 +983,77 @@ pub fn report_revenue(db: &nbe_data::Db) -> Result<String> {
     }
     for (ym, e) in &earned {
         out.push_str(&format!("  {ym}   {}\n", format_cents(e.round() as i64)));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+/// Forward income forecast. Since packages are paid in full up front, each *future* renewal
+/// drops its whole price as cash in the month the client's current package is projected to
+/// deplete — then again every full package-cycle after that, assuming like-for-like renewal.
+/// Buckets the next `months` months by `YYYY-MM`.
+pub fn report_forecast(db: &nbe_data::Db, months: i64, now: i64) -> Result<String> {
+    use std::collections::BTreeMap;
+    let months = months.max(1);
+    let (mut y, mut m) = year_month(now);
+    let mut order: Vec<String> = Vec::with_capacity(months as usize);
+    for _ in 0..months {
+        order.push(format!("{y:04}-{m:02}"));
+        m += 1;
+        if m > 12 {
+            m = 1;
+            y += 1;
+        }
+    }
+    let last = order.last().cloned().unwrap_or_default();
+    let mut buckets: BTreeMap<String, i64> = order.iter().map(|k| (k.clone(), 0)).collect();
+
+    let mut unprojectable = 0;
+    for pkg in repo::active_packages(&db.conn)? {
+        if pkg.total_sessions <= 0 {
+            continue;
+        }
+        let freq: f64 = repo::list_slots_for(&db.conn, &pkg.client_id)?
+            .iter()
+            .map(|s| s.cadence)
+            .sum();
+        if freq <= 0.0 {
+            unprojectable += 1;
+            continue;
+        }
+        let used = repo::sessions_completed(&db.conn, &pkg.id)?;
+        let remaining = pkg.total_sessions - used;
+        // first future renewal = when the current package depletes; then every full cycle.
+        let Some(mut date) = project_depletion(now, remaining, freq) else {
+            continue;
+        };
+        let cycle = project_depletion(0, pkg.total_sessions, freq)
+            .unwrap_or(0)
+            .max(86_400);
+        for _ in 0..600 {
+            let (yy, mm) = year_month(date);
+            let key = format!("{yy:04}-{mm:02}");
+            if key.as_str() > last.as_str() {
+                break;
+            }
+            if let Some(b) = buckets.get_mut(&key) {
+                *b += pkg.price_cents;
+            }
+            date += cycle;
+        }
+    }
+
+    let mut out = format!("Projected income — cash up front, next {months} month(s):\n");
+    let mut total = 0;
+    for k in &order {
+        let v = buckets[k];
+        total += v;
+        out.push_str(&format!("  {k}   {}\n", format_cents(v)));
+    }
+    out.push_str(&format!("  ── total {}", format_cents(total)));
+    if unprojectable > 0 {
+        out.push_str(&format!(
+            "\n  ({unprojectable} active package(s) without slots — add slots to include them)"
+        ));
     }
     Ok(out.trim_end().to_string())
 }

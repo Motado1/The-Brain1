@@ -212,6 +212,11 @@ enum Command {
     SlotDelete { id: String },
     /// Revenue: cash-in by month + earned over time.
     ReportRevenue,
+    /// Project monthly income forward from active packages + slot cadence (cash paid up front).
+    ReportForecast {
+        #[arg(long, default_value_t = 6)]
+        months: i64,
+    },
     /// Weekly work hours from slots.
     ReportHours,
     /// Day-by-day schedule for the days ahead (from recurring slots), marking logged sessions.
@@ -347,7 +352,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             date,
         } => ops::package_add(&mut db, &client, &kind, &price, date.as_deref(), now),
         Command::PackageList { client } => ops::package_list(&db, client.as_deref()),
-        Command::PackageDelete { id } => ops::package_delete(&mut db, &id),
+        Command::PackageDelete { id } => ops::package_delete(&mut db, &id, now),
         Command::SessionLog {
             client,
             date,
@@ -366,15 +371,16 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             date.as_deref(),
             status.as_deref(),
             note.as_deref(),
+            now,
         ),
-        Command::SessionDelete { id } => ops::session_delete(&mut db, &id),
+        Command::SessionDelete { id } => ops::session_delete(&mut db, &id, now),
         Command::SlotAdd {
             client,
             day,
             time,
             duration,
             cadence,
-        } => ops::slot_add(&mut db, &client, &day, &time, duration, cadence),
+        } => ops::slot_add(&mut db, &client, &day, &time, duration, cadence, now),
         Command::SlotList => ops::slot_list(&db),
         Command::SlotUpdate {
             id,
@@ -389,9 +395,11 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             time.as_deref(),
             duration,
             cadence,
+            now,
         ),
-        Command::SlotDelete { id } => ops::slot_delete(&mut db, &id),
+        Command::SlotDelete { id } => ops::slot_delete(&mut db, &id, now),
         Command::ReportRevenue => ops::report_revenue(&db),
+        Command::ReportForecast { months } => ops::report_forecast(&db, months, now),
         Command::ReportHours => ops::report_hours(&db),
         Command::Agenda { days } => ops::agenda(&db, days, now),
         Command::ReportSessions => ops::report_sessions(&db, now),
