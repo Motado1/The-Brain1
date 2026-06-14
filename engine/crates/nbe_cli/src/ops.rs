@@ -1483,6 +1483,63 @@ pub fn report_sessions(db: &nbe_data::Db, now: i64) -> Result<String> {
     Ok(out.trim_end().to_string())
 }
 
+/// Low-session nudges: active packages about to run out, most-urgent first, so a client can be
+/// re-sold before they lapse. Flags a package when sessions remaining `<= within_sessions` OR the
+/// projected weeks-to-depletion `<= within_weeks`. Clients without slots can't be timed, so they
+/// flag only on the session count.
+pub fn nudges(
+    db: &nbe_data::Db,
+    within_sessions: i64,
+    within_weeks: f64,
+    now: i64,
+) -> Result<String> {
+    // (remaining, depletion-or-max for sorting, formatted line)
+    let mut rows: Vec<(i64, i64, String)> = Vec::new();
+    for p in repo::active_packages(&db.conn)? {
+        if p.total_sessions <= 0 {
+            continue;
+        }
+        let used = repo::sessions_completed(&db.conn, &p.id)?;
+        let remaining = (p.total_sessions - used).max(0);
+        let freq: f64 = repo::list_slots_for(&db.conn, &p.client_id)?
+            .iter()
+            .map(|s| s.cadence)
+            .sum();
+        let weeks_left = (freq > 0.0).then(|| remaining as f64 / freq);
+        let flag = remaining <= within_sessions || weeks_left.is_some_and(|w| w <= within_weeks);
+        if !flag {
+            continue;
+        }
+        let depletion = project_depletion(now, remaining, freq);
+        let eta = match (depletion, weeks_left) {
+            (Some(d), Some(w)) => format!("runs out ~{} ({w:.1} wks @ {freq:.1}/wk)", format_date(d)),
+            _ => "no slots — add slots for an ETA".to_string(),
+        };
+        let line = format!(
+            "  {:<20} {} {} of {} left — {}; re-sell {}",
+            client_name(db, &p.client_id)?,
+            p.kind,
+            remaining,
+            p.total_sessions,
+            eta,
+            format_cents(p.price_cents),
+        );
+        rows.push((remaining, depletion.unwrap_or(i64::MAX), line));
+    }
+    if rows.is_empty() {
+        return Ok(format!(
+            "no clients within {within_sessions} session(s) or {within_weeks:.0} week(s) of running out"
+        ));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut out = format!("Nudges — {} client(s) to re-sell soon:\n", rows.len());
+    for (_, _, line) in rows {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    Ok(out.trim_end().to_string())
+}
+
 // ---- calendar sync ---------------------------------------------------------------------
 
 pub fn calendar_set_url(db: &nbe_data::Db, url: &str) -> Result<String> {

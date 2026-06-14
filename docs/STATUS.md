@@ -32,7 +32,8 @@ iteration).
 - `nbe_calendar` — ICS parser + event→client matcher + `EventSource` (ureq HTTPS, `http` feature).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
-  **forecast** = projected monthly income, **retention** = renewal/repeat rates);
+  **forecast** = projected monthly income, **retention** = renewal/repeat rates,
+  **nudges** = clients about to run out of sessions, re-sell before they lapse);
   `recompute-activation` (persist fresh activation from facets for the renderer); calendar-sync;
   **research topics/tags** (`note-tag`/`note-untag`/`topic-list`, `note-list --tag`): a topic is a
   hub neuron in the Research region, notes link to it — so tagged research clusters in the brain;

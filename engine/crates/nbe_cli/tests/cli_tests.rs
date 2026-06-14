@@ -506,6 +506,57 @@ fn notes_tag_into_topics_and_filter() {
 }
 
 #[test]
+fn nudges_flag_clients_running_low() {
+    let mut db = Db::open_in_memory().unwrap();
+    let by_name = |db: &Db, name: &str| -> String {
+        repo::list_crm(&db.conn)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.contact.as_deref() == Some(name))
+            .unwrap()
+            .entity_id
+    };
+
+    // Low + slots: 1 session left -> flagged with an ETA.
+    ops::client_add(&mut db, "LowSlots", "active", None, None, NOW).unwrap();
+    let low = by_name(&db, "LowSlots");
+    ops::slot_add(&mut db, &low[..8], "Mon", "09:00", 60, 1.0, NOW).unwrap();
+    ops::package_add(&mut db, &low[..8], "PT10", "1000", None, NOW).unwrap();
+    for _ in 0..9 {
+        ops::session_log(&mut db, &low[..8], None, "completed", None, NOW).unwrap();
+    }
+
+    // Fresh full package -> not flagged.
+    ops::client_add(&mut db, "Fresh", "active", None, None, NOW).unwrap();
+    let fresh = by_name(&db, "Fresh");
+    ops::slot_add(&mut db, &fresh[..8], "Tue", "09:00", 60, 1.0, NOW).unwrap();
+    ops::package_add(&mut db, &fresh[..8], "PT10", "1000", None, NOW).unwrap();
+
+    // Low + no slots: 1 left, can't be timed -> still flagged, no ETA.
+    ops::client_add(&mut db, "NoSlots", "active", None, None, NOW).unwrap();
+    let nos = by_name(&db, "NoSlots");
+    ops::package_add(&mut db, &nos[..8], "PT10", "1000", None, NOW).unwrap();
+    for _ in 0..9 {
+        ops::session_log(&mut db, &nos[..8], None, "completed", None, NOW).unwrap();
+    }
+
+    let r = ops::nudges(&db, 2, 2.0, NOW).unwrap();
+    assert!(r.contains("LowSlots"), "{r}");
+    assert!(r.contains("NoSlots"), "{r}");
+    assert!(!r.contains("Fresh"), "a fresh package isn't a nudge: {r}");
+    assert!(r.contains("re-sell $1000.00"), "shows re-sell value: {r}");
+    assert!(r.contains("add slots for an ETA"), "no-slots client lacks an ETA: {r}");
+
+    // Nothing low -> friendly empty message.
+    let mut db2 = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db2, "Solo", "active", None, None, NOW).unwrap();
+    let s = by_name(&db2, "Solo");
+    ops::slot_add(&mut db2, &s[..8], "Wed", "09:00", 60, 1.0, NOW).unwrap();
+    ops::package_add(&mut db2, &s[..8], "PT30", "3000", None, NOW).unwrap();
+    assert!(ops::nudges(&db2, 2, 2.0, NOW).unwrap().contains("no clients within"));
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");
