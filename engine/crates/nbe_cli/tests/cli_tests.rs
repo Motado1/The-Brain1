@@ -374,6 +374,47 @@ fn forecast_flags_clients_without_slots() {
 }
 
 #[test]
+fn retention_reports_renewal_and_repeat_rates() {
+    let mut db = Db::open_in_memory().unwrap();
+    let by_name = |db: &Db, name: &str| -> String {
+        repo::list_crm(&db.conn)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.contact.as_deref() == Some(name))
+            .unwrap()
+            .entity_id
+    };
+
+    // A: depletes a PT10 then renews -> depleted + renewed.
+    ops::client_add(&mut db, "A", "active", None, None, NOW).unwrap();
+    let a = by_name(&db, "A");
+    ops::package_add(&mut db, &a[..8], "PT10", "1000", Some("2026-01-01"), NOW).unwrap();
+    for _ in 0..10 {
+        ops::session_log(&mut db, &a[..8], None, "completed", None, NOW).unwrap();
+    }
+    ops::package_add(&mut db, &a[..8], "PT10", "1000", Some("2026-04-01"), NOW).unwrap();
+
+    // B: depletes but never renews -> depleted, not renewed.
+    ops::client_add(&mut db, "B", "churned", None, None, NOW).unwrap();
+    let b = by_name(&db, "B");
+    ops::package_add(&mut db, &b[..8], "PT10", "1000", None, NOW).unwrap();
+    for _ in 0..10 {
+        ops::session_log(&mut db, &b[..8], None, "completed", None, NOW).unwrap();
+    }
+
+    // C: a fresh package, not yet depleted -> excluded from the renewal rate.
+    ops::client_add(&mut db, "C", "active", None, None, NOW).unwrap();
+    let c = by_name(&db, "C");
+    ops::package_add(&mut db, &c[..8], "PT10", "1000", None, NOW).unwrap();
+
+    let r = ops::report_retention(&db).unwrap();
+    assert!(r.contains("clients               3"), "{r}");
+    assert!(r.contains("50% (1/2 depleted packages renewed)"), "{r}");
+    assert!(r.contains("33% (1/3 bought >1 package)"), "{r}");
+    assert!(r.contains("avg packages/client   1.33"), "{r}");
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

@@ -1106,6 +1106,76 @@ pub fn agenda(db: &nbe_data::Db, days: i64, now: i64) -> Result<String> {
     Ok(out.trim_end().to_string())
 }
 
+/// Retention metrics. The core signal for an up-front PT model is the **renewal rate**: of the
+/// packages a client has fully used up, how many were followed by another purchase. Also reports
+/// repeat-client share, average packages per client, and the lifecycle-stage breakdown.
+pub fn report_retention(db: &nbe_data::Db) -> Result<String> {
+    use std::collections::{BTreeMap, HashMap};
+
+    let crm = repo::list_crm(&db.conn)?;
+    let total_clients = crm.len();
+    let mut stages: BTreeMap<String, usize> = BTreeMap::new();
+    for c in &crm {
+        *stages.entry(c.lifecycle_stage.clone()).or_default() += 1;
+    }
+
+    // Packages grouped per client.
+    let mut by_client: HashMap<String, Vec<Package>> = HashMap::new();
+    for p in repo::list_packages(&db.conn)? {
+        by_client.entry(p.client_id.clone()).or_default().push(p);
+    }
+    let clients_with_pkg = by_client.len();
+    let repeat_clients = by_client.values().filter(|v| v.len() >= 2).count();
+    let total_pkgs: usize = by_client.values().map(Vec::len).sum();
+
+    // Renewal rate: depleted packages that were followed by a later purchase.
+    let mut depleted = 0usize;
+    let mut renewed = 0usize;
+    for pkgs in by_client.values() {
+        for p in pkgs {
+            if p.total_sessions <= 0 {
+                continue;
+            }
+            let used = repo::sessions_completed(&db.conn, &p.id)?;
+            if used >= p.total_sessions {
+                depleted += 1;
+                if pkgs.iter().any(|q| q.purchased_at > p.purchased_at) {
+                    renewed += 1;
+                }
+            }
+        }
+    }
+
+    let pct = |n: usize, d: usize| -> String {
+        if d == 0 {
+            "n/a".into()
+        } else {
+            format!("{:.0}%", 100.0 * n as f64 / d as f64)
+        }
+    };
+    let avg_pkgs = if clients_with_pkg == 0 {
+        0.0
+    } else {
+        total_pkgs as f64 / clients_with_pkg as f64
+    };
+
+    let mut out = String::from("Retention\n");
+    out.push_str(&format!("  clients               {total_clients}\n"));
+    for (stage, n) in &stages {
+        out.push_str(&format!("    {stage:<18}{n}\n"));
+    }
+    out.push_str(&format!(
+        "  renewal rate          {} ({renewed}/{depleted} depleted packages renewed)\n",
+        pct(renewed, depleted)
+    ));
+    out.push_str(&format!(
+        "  repeat clients        {} ({repeat_clients}/{clients_with_pkg} bought >1 package)\n",
+        pct(repeat_clients, clients_with_pkg)
+    ));
+    out.push_str(&format!("  avg packages/client   {avg_pkgs:.2}"));
+    Ok(out.trim_end().to_string())
+}
+
 pub fn report_hours(db: &nbe_data::Db) -> Result<String> {
     let mut by_day = [0.0_f64; 7];
     for s in repo::list_slots(&db.conn)? {

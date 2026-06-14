@@ -30,7 +30,7 @@ iteration).
 - `nbe_calendar` — ICS parser + event→client matcher + `EventSource` (ureq HTTPS, `http` feature).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
-  **forecast** = projected monthly income); calendar-sync;
+  **forecast** = projected monthly income, **retention** = renewal/repeat rates); calendar-sync;
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the

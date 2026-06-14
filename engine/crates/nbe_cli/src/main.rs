@@ -219,6 +219,8 @@ enum Command {
     },
     /// Weekly work hours from slots.
     ReportHours,
+    /// Retention: renewal rate, repeat clients, avg packages/client, lifecycle breakdown.
+    ReportRetention,
     /// Day-by-day schedule for the days ahead (from recurring slots), marking logged sessions.
     Agenda {
         #[arg(long, default_value_t = 7)]
@@ -401,6 +403,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         Command::ReportRevenue => ops::report_revenue(&db),
         Command::ReportForecast { months } => ops::report_forecast(&db, months, now),
         Command::ReportHours => ops::report_hours(&db),
+        Command::ReportRetention => ops::report_retention(&db),
         Command::Agenda { days } => ops::agenda(&db, days, now),
         Command::ReportSessions => ops::report_sessions(&db, now),
         Command::CalendarSetUrl { url } => ops::calendar_set_url(&db, &url),
