@@ -88,8 +88,17 @@ enum Command {
         #[arg(long)]
         template: Option<String>,
     },
-    /// List notes.
-    NoteList,
+    /// List notes (optionally only those tagged with a topic).
+    NoteList {
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Tag a note with a topic (creates the topic on first use).
+    NoteTag { note: String, topic: String },
+    /// Remove a topic tag from a note.
+    NoteUntag { note: String, topic: String },
+    /// List all research topics with note counts.
+    TopicList,
     /// Update a note in place (title / body / review status).
     NoteUpdate {
         id: String,
@@ -317,7 +326,10 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             body,
             template,
         } => ops::note_add(&mut db, &title, &body, template.as_deref(), now),
-        Command::NoteList => ops::note_list(&db),
+        Command::NoteList { tag } => ops::note_list(&db, tag.as_deref()),
+        Command::NoteTag { note, topic } => ops::note_tag(&mut db, &note, &topic, now),
+        Command::NoteUntag { note, topic } => ops::note_untag(&mut db, &note, &topic),
+        Command::TopicList => ops::topic_list(&db),
         Command::NoteUpdate {
             id,
             title,

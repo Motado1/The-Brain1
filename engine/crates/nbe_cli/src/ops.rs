@@ -267,8 +267,38 @@ pub fn note_add(
     Ok(format!("added note {} ({title})", short(&id)))
 }
 
-pub fn note_list(db: &nbe_data::Db) -> Result<String> {
-    let notes = repo::list_knowledge(&db.conn)?;
+/// List research notes. With `tag`, only notes linked to that topic; otherwise all notes
+/// (topic neurons themselves are excluded — see `topic_list`).
+pub fn note_list(db: &nbe_data::Db, tag: Option<&str>) -> Result<String> {
+    if let Some(t) = tag {
+        let t = t.trim();
+        let topic_id = repo::topic_by_name(&db.conn, t)?
+            .ok_or_else(|| Error::Msg(format!("no topic '{t}'")))?;
+        let mut rows: Vec<(String, String, String)> = Vec::new();
+        for e in repo::backlinks(&db.conn, &topic_id)? {
+            if e.edge_type != "topic" {
+                continue;
+            }
+            if let Some(k) = repo::get_knowledge(&db.conn, &e.source_id)? {
+                let title = k.body_md.lines().next().unwrap_or("").trim_start_matches("# ");
+                rows.push((short(&e.source_id).to_string(), title.to_string(), k.review_status));
+            }
+        }
+        if rows.is_empty() {
+            return Ok(format!("no notes tagged '{t}'"));
+        }
+        rows.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+        let mut out = format!("{} note(s) tagged '{t}':\n", rows.len());
+        for (id, title, status) in rows {
+            out.push_str(&format!("  {id}  {title:<32} [{status}]\n"));
+        }
+        return Ok(out.trim_end().to_string());
+    }
+
+    let notes: Vec<_> = repo::list_knowledge(&db.conn)?
+        .into_iter()
+        .filter(|n| n.template_type.as_deref() != Some("topic"))
+        .collect();
     if notes.is_empty() {
         return Ok("no notes yet".into());
     }
@@ -281,6 +311,95 @@ pub fn note_list(db: &nbe_data::Db) -> Result<String> {
             title,
             n.review_status
         ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+// ---- research tags / topics ------------------------------------------------------------
+
+/// Find an existing topic neuron by name, or create one (a knowledge entity flagged
+/// `template_type = "topic"` in the Research region) so notes can link to it.
+fn ensure_topic(db: &nbe_data::Db, name: &str, now: i64) -> Result<String> {
+    if let Some(id) = repo::topic_by_name(&db.conn, name)? {
+        return Ok(id);
+    }
+    let id = new_entity(db, now)?;
+    repo::upsert_knowledge(
+        &db.conn,
+        &KnowledgeFacet {
+            entity_id: id.clone(),
+            body_md: format!("# {name}"),
+            template_type: Some("topic".into()),
+            review_status: "topic".into(),
+        },
+    )?;
+    repo::set_layer(&db.conn, &id, &Layer::Hidden(1))?;
+    set_activation(db, &id, 0.0)?;
+    Ok(id)
+}
+
+/// Tag a note with a topic (creating the topic neuron on first use).
+pub fn note_tag(db: &mut nbe_data::Db, note_prefix: &str, topic: &str, now: i64) -> Result<String> {
+    let topic = topic.trim();
+    if topic.is_empty() {
+        return Err(Error::Msg("topic name is empty".into()));
+    }
+    let note_id = resolve(db, note_prefix)?;
+    let k = repo::get_knowledge(&db.conn, &note_id)?
+        .ok_or_else(|| Error::Msg(format!("{} is not a note", short(&note_id))))?;
+    if k.template_type.as_deref() == Some("topic") {
+        return Err(Error::Msg("that entity is a topic, not a note".into()));
+    }
+    let topic_id = ensure_topic(db, topic, now)?;
+    let already = repo::outgoing(&db.conn, &note_id)?
+        .into_iter()
+        .any(|e| e.target_id == topic_id && e.edge_type == "topic");
+    if already {
+        return Ok(format!("note {} already tagged '{topic}'", short(&note_id)));
+    }
+    repo::insert_edge(
+        &db.conn,
+        &Edge {
+            id: new_id(),
+            source_id: note_id.clone(),
+            target_id: topic_id,
+            edge_type: "topic".into(),
+            weight: 1.0,
+            directed: true,
+        },
+    )?;
+    Ok(format!("tagged note {} with '{topic}'", short(&note_id)))
+}
+
+/// Remove a topic tag from a note.
+pub fn note_untag(db: &mut nbe_data::Db, note_prefix: &str, topic: &str) -> Result<String> {
+    let topic = topic.trim();
+    let note_id = resolve(db, note_prefix)?;
+    let topic_id = repo::topic_by_name(&db.conn, topic)?
+        .ok_or_else(|| Error::Msg(format!("no topic '{topic}'")))?;
+    let removed = repo::delete_edges_between(&db.conn, &note_id, &topic_id, Some("topic"))?;
+    if removed == 0 {
+        return Err(Error::Msg(format!(
+            "note {} isn't tagged '{topic}'",
+            short(&note_id)
+        )));
+    }
+    Ok(format!("untagged note {} from '{topic}'", short(&note_id)))
+}
+
+/// List every topic with how many notes carry it.
+pub fn topic_list(db: &nbe_data::Db) -> Result<String> {
+    let topics = repo::list_topics(&db.conn)?;
+    if topics.is_empty() {
+        return Ok("no topics yet".into());
+    }
+    let mut out = format!("{} topic(s):\n", topics.len());
+    for (id, name) in topics {
+        let count = repo::backlinks(&db.conn, &id)?
+            .into_iter()
+            .filter(|e| e.edge_type == "topic")
+            .count();
+        out.push_str(&format!("  {name:<24} {count} note(s)\n"));
     }
     Ok(out.trim_end().to_string())
 }
@@ -612,12 +731,18 @@ pub fn show(db: &nbe_data::Db, prefix: &str, now: i64) -> Result<String> {
 // ---- admin -----------------------------------------------------------------------------
 
 pub fn stats(db: &nbe_data::Db) -> Result<String> {
+    let knowledge = repo::list_knowledge(&db.conn)?;
+    let topics = knowledge
+        .iter()
+        .filter(|n| n.template_type.as_deref() == Some("topic"))
+        .count();
     Ok(format!(
-        "entities: {}\nclients:  {}\nledger:   {}\nnotes:    {}\nedges:    {}",
+        "entities: {}\nclients:  {}\nledger:   {}\nnotes:    {}\ntopics:   {}\nedges:    {}",
         repo::count_entities(&db.conn)?,
         repo::list_crm(&db.conn)?.len(),
         repo::list_ledger(&db.conn)?.len(),
-        repo::list_knowledge(&db.conn)?.len(),
+        knowledge.len() - topics,
+        topics,
         repo::count_edges(&db.conn)?,
     ))
 }

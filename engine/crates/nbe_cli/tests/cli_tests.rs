@@ -432,6 +432,53 @@ fn recompute_activation_refreshes_from_facets() {
 }
 
 #[test]
+fn notes_tag_into_topics_and_filter() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_add(&mut db, "Protein timing", "eat protein", None, NOW).unwrap();
+    ops::note_add(&mut db, "Squat depth", "below parallel", None, NOW).unwrap();
+    let by_title = |db: &Db, title: &str| -> String {
+        repo::list_knowledge(&db.conn)
+            .unwrap()
+            .into_iter()
+            .find(|k| k.body_md.starts_with(&format!("# {title}")))
+            .unwrap()
+            .entity_id
+    };
+    let protein = by_title(&db, "Protein timing");
+    let squat = by_title(&db, "Squat depth");
+
+    ops::note_tag(&mut db, &protein[..8], "Nutrition", NOW).unwrap();
+    ops::note_tag(&mut db, &squat[..8], "Technique", NOW).unwrap();
+    // re-tagging is a no-op.
+    let again = ops::note_tag(&mut db, &protein[..8], "Nutrition", NOW).unwrap();
+    assert!(again.contains("already tagged"), "{again}");
+
+    // topics list with counts.
+    let topics = ops::topic_list(&db).unwrap();
+    assert!(topics.contains("Nutrition") && topics.contains("Technique"), "{topics}");
+    assert!(topics.contains("1 note(s)"), "{topics}");
+
+    // filter by topic.
+    let nut = ops::note_list(&db, Some("Nutrition")).unwrap();
+    assert!(nut.contains("Protein timing"), "{nut}");
+    assert!(!nut.contains("Squat depth"), "{nut}");
+
+    // default note list shows notes but not the topic neurons themselves.
+    let all = ops::note_list(&db, None).unwrap();
+    assert!(all.contains("Protein timing") && all.contains("Squat depth"), "{all}");
+    assert!(!all.contains("Nutrition"), "topics aren't notes: {all}");
+
+    // untag clears the membership.
+    ops::note_untag(&mut db, &protein[..8], "Nutrition").unwrap();
+    assert!(ops::note_list(&db, Some("Nutrition")).unwrap().contains("no notes tagged"));
+
+    // stats separates notes from topics (2 notes, 2 topics).
+    let s = ops::stats(&db).unwrap();
+    assert!(s.contains("notes:    2"), "{s}");
+    assert!(s.contains("topics:   2"), "{s}");
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

@@ -340,6 +340,32 @@ pub fn list_knowledge(conn: &Connection) -> Result<Vec<KnowledgeFacet>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Topic neurons (knowledge facets flagged `template_type = 'topic'`): `(entity_id, name)`.
+pub fn list_topics(conn: &Connection) -> Result<Vec<(Id, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT entity_id, body_md FROM knowledge_facet WHERE template_type = 'topic' ORDER BY body_md",
+    )?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, body) = row?;
+        out.push((id, body.trim_start_matches("# ").to_string()));
+    }
+    Ok(out)
+}
+
+/// The entity id of the topic neuron named `name`, if it exists.
+pub fn topic_by_name(conn: &Connection, name: &str) -> Result<Option<Id>> {
+    let body = format!("# {name}");
+    Ok(conn
+        .query_row(
+            "SELECT entity_id FROM knowledge_facet WHERE template_type = 'topic' AND body_md = ?1",
+            params![body],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?)
+}
+
 /// Sum of ledger amounts grouped by tax bucket, ordered by bucket.
 pub fn ledger_by_bucket(conn: &Connection) -> Result<Vec<(String, i64)>> {
     let mut stmt = conn.prepare(

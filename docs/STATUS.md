@@ -34,6 +34,8 @@ iteration).
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
   **forecast** = projected monthly income, **retention** = renewal/repeat rates);
   `recompute-activation` (persist fresh activation from facets for the renderer); calendar-sync;
+  **research topics/tags** (`note-tag`/`note-untag`/`topic-list`, `note-list --tag`): a topic is a
+  hub neuron in the Research region, notes link to it — so tagged research clusters in the brain;
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the
