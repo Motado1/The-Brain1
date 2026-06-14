@@ -1,9 +1,9 @@
-//! The Neural Business Engine — renderer.
+//! The Neural Business Engine — renderer + navigation.
 //!
-//! Loads the graph from the SQLite database (`--db <path>`, default `brain.db`), computes the
-//! layered ANN layout, and renders it as the hybrid neuron/mycelial visual: activation-driven
-//! glowing nodes (white-hot when hot) and organic curved synapse edges, with HDR bloom. The
-//! GPU adapter/backend is logged by `bevy_render` at startup (DX12 on the workstation).
+//! Loads the graph from SQLite (`--db <path>`, default `brain.db`) and renders it as the
+//! "celestial" model: three spatial **clusters** (CRM / Research / Financial), each an organic
+//! web of glowing nodes, connected by curved filaments with travelling action-potential sparks.
+//! A left **sidebar** lists the clusters and their nodes; clicking flies the camera there.
 
 use std::collections::HashMap;
 
@@ -18,13 +18,104 @@ use bevy::render::settings::{Backends, PowerPreference, RenderCreation, WgpuSett
 use bevy::render::view::Hdr;
 use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
-use nbe_data::Layer;
 use nbe_geometry::{edge_curve, CurveParams};
-use nbe_layout::{layered_layout, LayoutNode, LayoutParams};
 
 #[derive(Resource)]
 struct DbPath(String);
+
+// ---- clusters --------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Cluster {
+    Crm,
+    Research,
+    Financial,
+}
+
+impl Cluster {
+    const ALL: [Cluster; 3] = [Cluster::Crm, Cluster::Research, Cluster::Financial];
+
+    fn label(self) -> &'static str {
+        match self {
+            Cluster::Crm => "CRM — Clients",
+            Cluster::Research => "Research — Knowledge",
+            Cluster::Financial => "Financial — Ledger",
+        }
+    }
+
+    /// Base emissive hue (pre activation/intensity).
+    fn base_color(self) -> (f32, f32, f32) {
+        match self {
+            Cluster::Crm => (0.12, 0.6, 1.0),       // cyan
+            Cluster::Research => (0.2, 1.0, 0.45),  // green
+            Cluster::Financial => (1.0, 0.6, 0.12), // amber
+        }
+    }
+
+    /// Base node radius — clients are the big "neurons".
+    fn base_size(self) -> f32 {
+        match self {
+            Cluster::Crm => 0.95,
+            Cluster::Research => 0.5,
+            Cluster::Financial => 0.55,
+        }
+    }
+
+    /// Centre of this cluster's region of space (the three floating networks).
+    fn center(self) -> Vec3 {
+        match self {
+            Cluster::Crm => Vec3::new(-230.0, 0.0, 70.0),
+            Cluster::Research => Vec3::new(230.0, 0.0, 70.0),
+            Cluster::Financial => Vec3::new(0.0, 0.0, -210.0),
+        }
+    }
+}
+
+const CLUSTER_RADIUS: f32 = 75.0;
+const EDGE_WEIGHT_MIN: f64 = 0.55;
+
+// ---- navigation registry + camera target ----------------------------------------------
+
+struct NodeInfo {
+    name: String,
+    cluster: Cluster,
+    pos: Vec3,
+}
+
+#[derive(Resource, Default)]
+struct NodeRegistry {
+    nodes: Vec<NodeInfo>,
+    galaxy_center: Vec3,
+    galaxy_radius: f32,
+}
+
+impl NodeRegistry {
+    /// Focus + radius to frame a whole cluster.
+    fn cluster_view(&self, cluster: Cluster) -> (Vec3, f32) {
+        let pts: Vec<Vec3> = self
+            .nodes
+            .iter()
+            .filter(|n| n.cluster == cluster)
+            .map(|n| n.pos)
+            .collect();
+        if pts.is_empty() {
+            return (cluster.center(), 120.0);
+        }
+        let center = pts.iter().copied().sum::<Vec3>() / pts.len() as f32;
+        let radius = pts
+            .iter()
+            .map(|p| p.distance(center))
+            .fold(0.0_f32, f32::max)
+            .max(20.0);
+        (center, radius * 1.4)
+    }
+}
+
+/// When set, the camera smoothly flies to this (focus, radius).
+#[derive(Resource, Default)]
+struct CameraTarget(Option<(Vec3, f32)>);
 
 fn db_path_from_args() -> String {
     let mut args = std::env::args().skip(1);
@@ -66,10 +157,14 @@ fn main() {
                     ..default()
                 }),
         )
+        .add_plugins(EguiPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(Color::srgb(0.008, 0.015, 0.04)))
         .insert_resource(DbPath(db_path_from_args()))
+        .insert_resource(CameraTarget::default())
+        .insert_resource(NodeRegistry::default())
         .add_systems(Startup, (load_graph, setup_hud))
+        .add_systems(EguiPrimaryContextPass, sidebar_ui)
         .add_systems(
             Update,
             (orbit_camera, update_hud, animate_breath, animate_sparks),
@@ -77,7 +172,8 @@ fn main() {
         .run();
 }
 
-/// Yaw/pitch/zoom orbit camera.
+// ---- components / helpers --------------------------------------------------------------
+
 #[derive(Component)]
 struct OrbitCamera {
     focus: Vec3,
@@ -97,7 +193,6 @@ impl OrbitCamera {
 #[derive(Component)]
 struct HudText;
 
-/// Gentle size pulsing per node (organic "breathing").
 #[derive(Component)]
 struct Breath {
     base: f32,
@@ -105,7 +200,6 @@ struct Breath {
     speed: f32,
 }
 
-/// A travelling action-potential mote that runs along an edge polyline.
 #[derive(Component)]
 struct Spark {
     path: usize,
@@ -114,11 +208,39 @@ struct Spark {
     rng: u64,
 }
 
-/// The drawn edge polylines, reused by the sparks.
 #[derive(Resource, Default)]
 struct EdgePaths(Vec<Vec<Vec3>>);
 
-/// Cheap LCG -> [0, 1).
+fn hash_u64(s: &str) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// Deterministic value in [-1, 1] from an id + salt.
+fn rand_unit(id: &str, salt: u64) -> f32 {
+    let mut h = hash_u64(id) ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    h = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    h ^= h >> 32;
+    (h >> 11) as f32 / (1u64 << 53) as f32 * 2.0 - 1.0
+}
+
+fn rand01(id: &str, salt: u64) -> f32 {
+    rand_unit(id, salt) * 0.5 + 0.5
+}
+
+/// Evenly distributed direction on the unit sphere (Fibonacci).
+fn fib_dir(i: usize, n: usize) -> Vec3 {
+    let golden = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt());
+    let y = 1.0 - 2.0 * ((i as f32 + 0.5) / n as f32);
+    let r = (1.0 - y * y).max(0.0).sqrt();
+    let th = i as f32 * golden;
+    Vec3::new(r * th.cos(), y, r * th.sin())
+}
+
 fn lcg(state: &mut u64) -> f32 {
     *state = state
         .wrapping_mul(6364136223846793005)
@@ -126,7 +248,6 @@ fn lcg(state: &mut u64) -> f32 {
     ((*state >> 40) as u32) as f32 / (1u32 << 24) as f32
 }
 
-/// Position at parameter `t` in [0,1] along a polyline.
 fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
     match points.len() {
         0 => Vec3::ZERO,
@@ -141,59 +262,32 @@ fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
     }
 }
 
-// ---- deterministic per-id depth (gives the flat layered graph a bit of 3D / bokeh) ----
-
-fn hash_u64(s: &str) -> u64 {
-    let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
+fn money(cents: i64) -> String {
+    let a = cents.abs();
+    format!(
+        "{}${}.{:02}",
+        if cents < 0 { "-" } else { "" },
+        a / 100,
+        a % 100
+    )
 }
 
-// Spread/scatter of the neuron cloud. Layers advance left->right by LAYER_GAP, but each layer's
-// nodes are scattered through a 3D volume (radius SPREAD) so it reads as an organic web rather
-// than rigid vertical columns.
-const LAYER_GAP: f32 = 30.0;
-const SPREAD: f32 = 38.0;
-const X_JITTER: f32 = 8.0;
-
-// Connection culling — fewer, cleaner, node-to-node edges (matches the reference web).
-const EDGE_WEIGHT_MIN: f64 = 0.55;
-const MAX_EDGE_LEN: f32 = 52.0;
-
-/// Deterministic value in [-1, 1] from an id + salt.
-fn rand_unit(id: &str, salt: u64) -> f32 {
-    let mut h = hash_u64(id) ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    h = (h ^ (h >> 29)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    h ^= h >> 32;
-    let u = (h >> 11) as f32 / (1u64 << 53) as f32; // [0,1)
-    u * 2.0 - 1.0
-}
-
-/// Emissive colour (HDR, can exceed 1.0 for bloom): hue by layer, white-hot by activation.
-fn node_emissive(activation: f32, column: u32, last: u32) -> LinearRgba {
-    let base = if column == 0 {
-        (0.10, 1.0, 0.55) // input — green-cyan
-    } else if column == last {
-        (1.0, 0.55, 0.12) // output — amber
-    } else {
-        (0.14, 0.6, 1.0) // hidden — electric blue
-    };
+/// Emissive (HDR) for a node: cluster hue, toward white-hot with activation.
+fn node_emissive(cluster: Cluster, activation: f32) -> LinearRgba {
+    let (r, g, b) = cluster.base_color();
     let t = activation.clamp(0.0, 1.0) * 0.85;
     let toward_white = |c: f32| c + (1.0 - c) * t;
-    let intensity = 1.2 + activation * 7.0;
+    let intensity = 1.0 + activation * 7.0;
     LinearRgba::rgb(
-        toward_white(base.0) * intensity,
-        toward_white(base.1) * intensity,
-        toward_white(base.2) * intensity,
+        toward_white(r) * intensity,
+        toward_white(g) * intensity,
+        toward_white(b) * intensity,
     )
 }
 
 fn bounds(points: &[Vec3]) -> (Vec3, f32) {
     if points.is_empty() {
-        return (Vec3::ZERO, 30.0);
+        return (Vec3::ZERO, 200.0);
     }
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
@@ -202,8 +296,21 @@ fn bounds(points: &[Vec3]) -> (Vec3, f32) {
         max = max.max(p);
     }
     let center = (min + max) * 0.5;
-    let radius = ((max - min).length() * 0.5).max(10.0);
+    let radius = ((max - min).length() * 0.5).max(20.0);
     (center, radius)
+}
+
+fn line_mesh(points: &[Vec3]) -> Mesh {
+    let positions: Vec<[f32; 3]> = points.iter().map(|v| v.to_array()).collect();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; points.len()];
+    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0]; points.len()];
+    Mesh::new(
+        PrimitiveTopology::LineStrip,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
 }
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
@@ -223,32 +330,21 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
     ));
 }
 
-/// Build a glowing line-strip mesh from a polyline (with normals/uvs so PBR is happy).
-fn line_mesh(points: &[Vec3]) -> Mesh {
-    let positions: Vec<[f32; 3]> = points.iter().map(|v| v.to_array()).collect();
-    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; points.len()];
-    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0]; points.len()];
-    Mesh::new(
-        PrimitiveTopology::LineStrip,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-}
+// ---- scene build -----------------------------------------------------------------------
 
 fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
 ) {
     let path = &db_path.0;
     let db = match nbe_data::Db::open(path, None) {
         Ok(d) => d,
         Err(e) => {
-            warn!("could not open '{path}' ({e}); showing empty scene. If it's encrypted, decrypt or pass plaintext.");
-            spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+            warn!("could not open '{path}' ({e}); empty scene.");
+            spawn_camera(&mut commands, Vec3::ZERO, 200.0);
             return;
         }
     };
@@ -256,120 +352,114 @@ fn load_graph(
         Ok(s) => s,
         Err(e) => {
             warn!("could not read '{path}' ({e})");
-            spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+            spawn_camera(&mut commands, Vec3::ZERO, 200.0);
             return;
         }
     };
-
     if snap.entities.is_empty() {
-        warn!("no data in '{path}'. Seed a demo graph with:  nbe --db {path} seed");
-        spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+        warn!("no data in '{path}'. Seed with:  nbe --db {path} seed");
+        spawn_camera(&mut commands, Vec3::ZERO, 200.0);
         return;
     }
-    info!(
-        "loaded {} entities, {} edges from {path}",
-        snap.entities.len(),
-        snap.edges.len()
-    );
+    info!("loaded {} entities, {} edges", snap.entities.len(), snap.edges.len());
 
-    // Layer -> column mapping (derive hidden-layer count from the data).
-    let mut max_hidden = 0u8;
-    for l in &snap.layers {
-        if let Some(Layer::Hidden(n)) = Layer::from_db(&l.layer) {
-            max_hidden = max_hidden.max(n);
-        }
+    // Cluster + display name per entity (priority CRM > Research > Financial).
+    let mut cluster_of: HashMap<String, Cluster> = HashMap::new();
+    let mut name_of: HashMap<String, String> = HashMap::new();
+    for c in &snap.crm {
+        cluster_of.insert(c.entity_id.clone(), Cluster::Crm);
+        name_of.insert(
+            c.entity_id.clone(),
+            c.contact.clone().unwrap_or_else(|| "client".into()),
+        );
     }
-    let last_col = max_hidden as u32 + 1;
-    let column = |s: &str| match Layer::from_db(s) {
-        Some(Layer::Input) => 0,
-        Some(Layer::Hidden(n)) => n as u32 + 1,
-        Some(Layer::Output) => last_col,
-        None => 0,
-    };
-
-    let nodes: Vec<LayoutNode> = snap
-        .layers
-        .iter()
-        .map(|l| LayoutNode {
-            id: l.entity_id.clone(),
-            column: column(&l.layer),
-        })
-        .collect();
-    let edges: Vec<(String, String)> = snap
-        .edges
-        .iter()
-        .map(|e| (e.source_id.clone(), e.target_id.clone()))
-        .collect();
-
-    let layout = layered_layout(&nodes, &edges, &LayoutParams::default());
-
-    // Even "sunflower" distribution of each layer's nodes across a disc (in the y/z plane),
-    // with a touch of jitter — organized and clean, but still organic. x advances by layer.
-    let golden = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()); // ~2.39996 rad
-    let mut counts: HashMap<u32, usize> = HashMap::new();
-    for np in &layout.nodes {
-        *counts.entry(np.column).or_default() += 1;
+    for k in &snap.knowledge {
+        cluster_of.entry(k.entity_id.clone()).or_insert(Cluster::Research);
+        let title = k.body_md.lines().next().unwrap_or("note").trim_start_matches("# ");
+        name_of.entry(k.entity_id.clone()).or_insert_with(|| title.to_string());
     }
-    let mut seen: HashMap<u32, usize> = HashMap::new();
-    let mut pos: HashMap<String, Vec3> = HashMap::new();
-    for np in &layout.nodes {
-        let i = {
-            let e = seen.entry(np.column).or_default();
-            let v = *e;
-            *e += 1;
-            v
-        };
-        let n = (*counts.get(&np.column).unwrap_or(&1)).max(1);
-        let frac = (i as f32 + 0.5) / n as f32;
-        let radius = SPREAD * frac.sqrt();
-        let angle = i as f32 * golden;
-        let jitter = SPREAD * 0.06;
-        let x = np.column as f32 * LAYER_GAP + rand_unit(&np.id, 1) * X_JITTER;
-        let y = radius * angle.cos() + rand_unit(&np.id, 7) * jitter;
-        let z = radius * angle.sin() + rand_unit(&np.id, 8) * jitter;
-        pos.insert(np.id.clone(), Vec3::new(x, y, z));
+    for l in &snap.ledger {
+        cluster_of.entry(l.entity_id.clone()).or_insert(Cluster::Financial);
+        name_of
+            .entry(l.entity_id.clone())
+            .or_insert_with(|| format!("{} [{}]", money(l.amount_cents), l.invoice_status));
     }
+
     let activation: HashMap<String, f64> = snap
         .activations
         .iter()
         .map(|a| (a.entity_id.clone(), a.value))
         .collect();
 
-    // Nodes: one shared sphere mesh, per-node emissive material + scale.
-    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
-    for np in &layout.nodes {
-        let a = *activation.get(&np.id).unwrap_or(&0.0) as f32;
-        let r = 0.18 + a * 0.45;
-        let mat = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.02, 0.06, 0.14),
-            emissive: node_emissive(a, np.column, last_col),
-            perceptual_roughness: 0.4,
-            ..default()
-        });
-        commands.spawn((
-            Mesh3d(sphere.clone()),
-            MeshMaterial3d(mat),
-            Transform::from_translation(pos[&np.id]).with_scale(Vec3::splat(r)),
-            Breath {
-                base: r,
-                phase: rand_unit(&np.id, 9) * std::f32::consts::TAU,
-                speed: 0.6 + (rand_unit(&np.id, 10) * 0.5 + 0.5) * 0.8,
-            },
-        ));
+    // Group entity ids by cluster (sorted for deterministic positions).
+    let mut groups: HashMap<Cluster, Vec<String>> = HashMap::new();
+    for e in &snap.entities {
+        let cl = *cluster_of.get(&e.id).unwrap_or(&Cluster::Research);
+        groups.entry(cl).or_default().push(e.id.clone());
+    }
+    for ids in groups.values_mut() {
+        ids.sort();
     }
 
-    // Edges: organic curved synapses. We keep only the stronger, shorter, clearly
-    // node-to-node connections so the web stays clean (not a crisscross of long lines).
+    // Position each cluster's nodes inside a ball at the cluster centre.
+    let mut pos: HashMap<String, Vec3> = HashMap::new();
+    for (&cluster, ids) in &groups {
+        let center = cluster.center();
+        let n = ids.len().max(1);
+        for (i, id) in ids.iter().enumerate() {
+            let dir = fib_dir(i, n);
+            let radius = CLUSTER_RADIUS * rand01(id, 11).cbrt();
+            let jitter = Vec3::new(
+                rand_unit(id, 12),
+                rand_unit(id, 13),
+                rand_unit(id, 14),
+            ) * (CLUSTER_RADIUS * 0.05);
+            pos.insert(id.clone(), center + dir * radius + jitter);
+        }
+    }
+
+    // Spawn nodes + build the navigation registry.
+    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
+    registry.nodes.clear();
+    for (&cluster, ids) in &groups {
+        for id in ids {
+            let a = *activation.get(id).unwrap_or(&0.0) as f32;
+            let r = cluster.base_size() + a * 0.45;
+            let p = pos[id];
+            let mat = materials.add(StandardMaterial {
+                base_color: Color::srgb(0.02, 0.06, 0.14),
+                emissive: node_emissive(cluster, a),
+                perceptual_roughness: 0.4,
+                ..default()
+            });
+            commands.spawn((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(mat),
+                Transform::from_translation(p).with_scale(Vec3::splat(r)),
+                Breath {
+                    base: r,
+                    phase: rand_unit(id, 9) * std::f32::consts::TAU,
+                    speed: 0.6 + rand01(id, 10) * 0.8,
+                },
+            ));
+            registry.nodes.push(NodeInfo {
+                name: name_of.get(id).cloned().unwrap_or_else(|| id[..8].to_string()),
+                cluster,
+                pos: p,
+            });
+        }
+    }
+
+    // Edges: curved filaments (stronger ones only), reused by the sparks.
     let edge_mat = materials.add(StandardMaterial {
         base_color: Color::srgba(0.0, 0.0, 0.0, 0.4),
         emissive: LinearRgba::rgb(0.05, 0.30, 0.70),
         alpha_mode: AlphaMode::Blend,
-        unlit: false,
         ..default()
     });
     let curve_params = CurveParams {
         samples: 18,
-        bow: 0.12,
+        bow: 0.1,
         sag: 0.03,
         jitter: 0.015,
         seed: 0x00E6,
@@ -379,8 +469,7 @@ fn load_graph(
         let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
             continue;
         };
-        // Cull weak and overly long connections to declutter the web.
-        if e.weight < EDGE_WEIGHT_MIN || (b - a).length() > MAX_EDGE_LEN {
+        if e.weight < EDGE_WEIGHT_MIN {
             continue;
         }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
@@ -392,14 +481,14 @@ fn load_graph(
         edge_paths.push(curve);
     }
 
-    // Action-potential sparks: bright amber motes that travel the connections.
+    // Action-potential sparks.
     if !edge_paths.is_empty() {
         let spark_mat = materials.add(StandardMaterial {
             base_color: Color::BLACK,
             emissive: LinearRgba::rgb(7.0, 3.0, 0.6),
             ..default()
         });
-        let spark_count = (edge_paths.len() * 3 / 2).clamp(20, 320);
+        let spark_count = (edge_paths.len() * 3 / 2).clamp(20, 400);
         let mut s = 0x9E37_79B9u64;
         for k in 0..spark_count {
             let path = (lcg(&mut s) * edge_paths.len() as f32) as usize % edge_paths.len();
@@ -409,7 +498,7 @@ fn load_graph(
             commands.spawn((
                 Mesh3d(sphere.clone()),
                 MeshMaterial3d(spark_mat.clone()),
-                Transform::from_translation(p).with_scale(Vec3::splat(0.3)),
+                Transform::from_translation(p).with_scale(Vec3::splat(0.32)),
                 Spark {
                     path,
                     t,
@@ -423,39 +512,57 @@ fn load_graph(
 
     let all: Vec<Vec3> = pos.values().copied().collect();
     let (center, radius) = bounds(&all);
+    registry.galaxy_center = center;
+    registry.galaxy_radius = radius;
     spawn_camera(&mut commands, center, radius);
 }
 
-fn setup_hud(mut commands: Commands) {
-    commands.spawn((
-        Text::new("loading…"),
-        TextFont {
-            font_size: 15.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.7, 0.9, 1.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(8.0),
-            left: Val::Px(8.0),
-            ..default()
-        },
-        HudText,
-    ));
-}
+// ---- UI + camera -----------------------------------------------------------------------
 
-fn update_hud(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<HudText>>) {
-    let fps = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FPS)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
-    let frame_ms = diagnostics
-        .get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
-        .and_then(|d| d.smoothed())
-        .unwrap_or(0.0);
-    for mut text in &mut query {
-        text.0 = format!("{fps:5.0} FPS   |   {frame_ms:5.2} ms   |   drag: orbit  scroll: zoom");
-    }
+fn sidebar_ui(
+    mut contexts: EguiContexts,
+    registry: Res<NodeRegistry>,
+    mut target: ResMut<CameraTarget>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    egui::SidePanel::left("nav")
+        .default_width(250.0)
+        .show(ctx, |ui| {
+            ui.heading("The Brain");
+            if ui.button("Galaxy view").clicked() {
+                target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
+            }
+            ui.separator();
+            for cluster in Cluster::ALL {
+                let count = registry.nodes.iter().filter(|n| n.cluster == cluster).count();
+                egui::CollapsingHeader::new(format!("{} ({count})", cluster.label()))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if ui.button("→ go to cluster").clicked() {
+                            let (c, r) = registry.cluster_view(cluster);
+                            target.0 = Some((c, r));
+                        }
+                        egui::ScrollArea::vertical()
+                            .max_height(280.0)
+                            .id_salt(cluster.label())
+                            .show(ui, |ui| {
+                                let mut items: Vec<&NodeInfo> = registry
+                                    .nodes
+                                    .iter()
+                                    .filter(|n| n.cluster == cluster)
+                                    .collect();
+                                items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                                for ni in items {
+                                    if ui.button(&ni.name).clicked() {
+                                        target.0 = Some((ni.pos, 22.0));
+                                    }
+                                }
+                            });
+                    });
+            }
+        });
 }
 
 fn orbit_camera(
@@ -463,6 +570,7 @@ fn orbit_camera(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
+    mut target: ResMut<CameraTarget>,
     mut query: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
     let dragging = mouse_buttons.pressed(MouseButton::Left);
@@ -474,20 +582,34 @@ fn orbit_camera(
     } else {
         motion.clear();
     }
-
     let mut scroll = 0.0;
     for ev in wheel.read() {
         scroll += ev.y;
     }
 
-    // Slow idle rotation so the scene feels alive when you're not interacting.
-    let idle = if dragging { 0.0 } else { time.delta_secs() * 0.06 };
+    // Manual interaction cancels an active fly-to.
+    if drag != Vec2::ZERO || scroll != 0.0 {
+        target.0 = None;
+    }
+    let idle = if dragging || target.0.is_some() {
+        0.0
+    } else {
+        time.delta_secs() * 0.05
+    };
 
     for (mut orbit, mut transform) in &mut query {
+        if let Some((focus, radius)) = target.0 {
+            let k = (time.delta_secs() * 3.5).min(1.0);
+            orbit.focus = orbit.focus.lerp(focus, k);
+            orbit.radius += (radius - orbit.radius) * k;
+            if orbit.focus.distance(focus) < 0.5 && (orbit.radius - radius).abs() < 0.5 {
+                target.0 = None;
+            }
+        }
         orbit.yaw += idle - drag.x * 0.005;
         orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
         let factor = (1.0 - scroll * 0.08).clamp(0.5, 2.0);
-        orbit.radius = (orbit.radius * factor).clamp(3.0, 600.0);
+        orbit.radius = (orbit.radius * factor).clamp(3.0, 1200.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
     }
 }
@@ -517,5 +639,33 @@ fn animate_sparks(
             spark.speed = 0.12 + lcg(&mut spark.rng) * 0.35;
         }
         transform.translation = sample_path(&paths.0[spark.path], spark.t);
+    }
+}
+
+fn setup_hud(mut commands: Commands) {
+    commands.spawn((
+        Text::new("loading…"),
+        TextFont {
+            font_size: 15.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.7, 0.9, 1.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(8.0),
+            right: Val::Px(12.0),
+            ..default()
+        },
+        HudText,
+    ));
+}
+
+fn update_hud(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<HudText>>) {
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|d| d.smoothed())
+        .unwrap_or(0.0);
+    for mut text in &mut query {
+        text.0 = format!("{fps:5.0} FPS");
     }
 }
