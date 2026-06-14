@@ -43,6 +43,13 @@ iteration).
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the
   previous one); short-id resolution like entities. Lib+bin, fully tested.
 - `nbe_app` — **the renderer** (Bevy 0.18 + bevy_egui 0.39). Loads a `--db`, renders the Brain.
+  Right-hand **Business panel** (tab buttons: Agenda/Sessions/Renewals/Forecast/Revenue/Retention
+  + Refresh) reuses the `nbe_cli::ops` report handlers, read-only. *Compiles clean (cargo check) but
+  unverified visually — needs a desktop run; layout/colors to iterate. Editing-from-UI not wired yet.*
+
+> **Headless build note:** compiling `nbe_app` on Linux needs system libs:
+> `libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
+> libasound2-dev libudev-dev` (winit/audio/gamepad backends). Not needed for `nbe_cli`/`nbe_data`/etc.
 
 ## PT business model (already in the CRM)
 Clients buy packages **PT10/20/30** (=N sessions), **paid in full up front** (lumpy cash).

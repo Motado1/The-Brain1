@@ -3742,6 +3742,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "nbe_cli",
  "nbe_data",
  "nbe_geometry",
  "nbe_layout",

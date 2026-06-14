@@ -11,3 +11,4 @@ bevy_egui = "0.39"
 nbe_data = { path = "../nbe_data" }
 nbe_layout = { path = "../nbe_layout" }
 nbe_geometry = { path = "../nbe_geometry" }
+nbe_cli = { path = "../nbe_cli" }

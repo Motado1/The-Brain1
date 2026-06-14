@@ -6,6 +6,7 @@
 //! A left **sidebar** lists the clusters and their nodes; clicking flies the camera there.
 
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::tonemapping::Tonemapping;
@@ -24,6 +25,80 @@ use nbe_geometry::{edge_curve, CurveParams};
 
 #[derive(Resource)]
 struct DbPath(String);
+
+// ---- business panel (live reports from the hub) ----------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BizTab {
+    Agenda,
+    Sessions,
+    Renewals,
+    Forecast,
+    Revenue,
+    Retention,
+}
+
+impl BizTab {
+    const ALL: [BizTab; 6] = [
+        BizTab::Agenda,
+        BizTab::Sessions,
+        BizTab::Renewals,
+        BizTab::Forecast,
+        BizTab::Revenue,
+        BizTab::Retention,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            BizTab::Agenda => "Agenda",
+            BizTab::Sessions => "Sessions",
+            BizTab::Renewals => "Renewals",
+            BizTab::Forecast => "Forecast",
+            BizTab::Revenue => "Revenue",
+            BizTab::Retention => "Retention",
+        }
+    }
+}
+
+#[derive(Resource)]
+struct BusinessPanel {
+    tab: BizTab,
+    text: String,
+}
+
+impl Default for BusinessPanel {
+    fn default() -> Self {
+        Self {
+            tab: BizTab::Agenda,
+            text: String::new(),
+        }
+    }
+}
+
+fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Open the DB read-only and render the chosen report to text (reuses the CLI `ops` handlers).
+fn run_report(path: &str, tab: BizTab) -> String {
+    let db = match nbe_data::Db::open(path, None) {
+        Ok(d) => d,
+        Err(e) => return format!("cannot open {path}: {e}"),
+    };
+    let now = now_unix();
+    let res = match tab {
+        BizTab::Agenda => nbe_cli::ops::agenda(&db, 7, now),
+        BizTab::Sessions => nbe_cli::ops::report_sessions(&db, now),
+        BizTab::Renewals => nbe_cli::ops::report_renewals(&db, 30, now),
+        BizTab::Forecast => nbe_cli::ops::report_forecast(&db, 6, now),
+        BizTab::Revenue => nbe_cli::ops::report_revenue(&db),
+        BizTab::Retention => nbe_cli::ops::report_retention(&db),
+    };
+    res.unwrap_or_else(|e| format!("error: {e}"))
+}
 
 // ---- clusters --------------------------------------------------------------------------
 
@@ -162,8 +237,9 @@ fn main() {
         .insert_resource(DbPath(db_path_from_args()))
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())
+        .insert_resource(BusinessPanel::default())
         .add_systems(Startup, (load_graph, setup_hud))
-        .add_systems(EguiPrimaryContextPass, sidebar_ui)
+        .add_systems(EguiPrimaryContextPass, (sidebar_ui, business_panel_ui))
         .add_systems(
             Update,
             (orbit_camera, update_hud, animate_breath, animate_sparks),
@@ -570,6 +646,44 @@ fn sidebar_ui(
                             });
                     });
             }
+        });
+}
+
+/// Right-hand panel: live business reports from the hub, with a tab button per report and a
+/// refresh button. Read-only — opens the DB on demand when a tab is clicked.
+fn business_panel_ui(
+    mut contexts: EguiContexts,
+    mut panel: ResMut<BusinessPanel>,
+    db_path: Res<DbPath>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    // Populate on first frame.
+    if panel.text.is_empty() {
+        let tab = panel.tab;
+        panel.text = run_report(&db_path.0, tab);
+    }
+    egui::SidePanel::right("business")
+        .default_width(330.0)
+        .show(ctx, |ui| {
+            ui.heading("Business");
+            ui.horizontal_wrapped(|ui| {
+                for tab in BizTab::ALL {
+                    if ui.selectable_label(panel.tab == tab, tab.label()).clicked() {
+                        panel.tab = tab;
+                        panel.text = run_report(&db_path.0, tab);
+                    }
+                }
+            });
+            if ui.button("⟳ Refresh").clicked() {
+                let tab = panel.tab;
+                panel.text = run_report(&db_path.0, tab);
+            }
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.monospace(&panel.text);
+            });
         });
 }
 
