@@ -7,3 +7,6 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true }
+nbe_data = { path = "../nbe_data" }
+nbe_layout = { path = "../nbe_layout" }
+nbe_geometry = { path = "../nbe_geometry" }

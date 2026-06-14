@@ -3590,6 +3590,9 @@ name = "nbe_app"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "nbe_data",
+ "nbe_geometry",
+ "nbe_layout",
 ]
 
 [[package]]

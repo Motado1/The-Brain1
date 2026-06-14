@@ -1,25 +1,44 @@
-//! The Neural Business Engine — P0 scaffold.
+//! The Neural Business Engine — renderer.
 //!
-//! Boots a native Bevy window (DirectX 12 on the Windows workstation, the primary
-//! `wgpu` backend elsewhere), shows a frame-time HUD, and renders placeholder geometry
-//! with an orbit/zoom camera. This is the first runnable gate of the build plan:
-//! every later phase (data engine, instanced graph render, activation glow, action
-//! potentials) hangs off this shell.
-//!
-//! The chosen GPU adapter + backend is printed by `bevy_render` at startup, e.g.
-//! `AdapterInfo { name: "NVIDIA GeForce RTX 5080", backend: Dx12, .. }` — that log line
-//! is the acceptance check for "running on DX12 against the RTX 5080".
+//! Loads the graph from the SQLite database (`--db <path>`, default `brain.db`), computes the
+//! layered ANN layout, and renders it as the hybrid neuron/mycelial visual: activation-driven
+//! glowing nodes (white-hot when hot) and organic curved synapse edges, with HDR bloom. The
+//! GPU adapter/backend is logged by `bevy_render` at startup (DX12 on the workstation).
 
+use std::collections::HashMap;
+
+use bevy::asset::RenderAssetUsages;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::mesh::PrimitiveTopology;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::settings::{Backends, PowerPreference, RenderCreation, WgpuSettings};
+use bevy::render::view::Hdr;
 use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;
 
+use nbe_data::Layer;
+use nbe_geometry::{edge_curve, CurveParams};
+use nbe_layout::{layered_layout, LayoutNode, LayoutParams, NodePos};
+
+#[derive(Resource)]
+struct DbPath(String);
+
+fn db_path_from_args() -> String {
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        if a == "--db" {
+            if let Some(v) = args.next() {
+                return v;
+            }
+        }
+    }
+    "brain.db".to_string()
+}
+
 fn main() {
-    // Force DX12 on the Windows workstation; let wgpu pick the primary backend elsewhere
-    // (Vulkan on this Linux build host) so the project stays buildable cross-platform.
     let backends = if cfg!(target_os = "windows") {
         Some(Backends::DX12)
     } else {
@@ -48,13 +67,14 @@ fn main() {
                 }),
         )
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(ClearColor(Color::srgb(0.015, 0.02, 0.04)))
-        .add_systems(Startup, (setup_scene, setup_hud))
+        .insert_resource(ClearColor(Color::srgb(0.008, 0.015, 0.04)))
+        .insert_resource(DbPath(db_path_from_args()))
+        .add_systems(Startup, (load_graph, setup_hud))
         .add_systems(Update, (orbit_camera, update_hud))
         .run();
 }
 
-/// Simple yaw/pitch/zoom orbit camera. Reused by the graph view in P2.
+/// Yaw/pitch/zoom orbit camera.
 #[derive(Component)]
 struct OrbitCamera {
     focus: Vec3,
@@ -63,19 +83,7 @@ struct OrbitCamera {
     pitch: f32,
 }
 
-impl Default for OrbitCamera {
-    fn default() -> Self {
-        Self {
-            focus: Vec3::ZERO,
-            radius: 25.0,
-            yaw: 0.6,
-            pitch: 0.5,
-        }
-    }
-}
-
 impl OrbitCamera {
-    /// World-space eye position derived from the spherical orbit parameters.
     fn eye(&self) -> Vec3 {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
@@ -86,57 +94,217 @@ impl OrbitCamera {
 #[derive(Component)]
 struct HudText;
 
-fn setup_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // Camera
-    let cam = OrbitCamera::default();
+// ---- deterministic per-id depth (gives the flat layered graph a bit of 3D / bokeh) ----
+
+fn hash_u64(s: &str) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+fn depth(s: &str) -> f32 {
+    let unit = (hash_u64(s) >> 11) as f32 / (1u64 << 53) as f32; // [0,1)
+    unit * 6.0 - 3.0
+}
+
+/// Emissive colour (HDR, can exceed 1.0 for bloom): hue by layer, white-hot by activation.
+fn node_emissive(activation: f32, column: u32, last: u32) -> LinearRgba {
+    let base = if column == 0 {
+        (0.10, 1.0, 0.55) // input — green-cyan
+    } else if column == last {
+        (1.0, 0.55, 0.12) // output — amber
+    } else {
+        (0.14, 0.6, 1.0) // hidden — electric blue
+    };
+    let t = activation.clamp(0.0, 1.0) * 0.85;
+    let toward_white = |c: f32| c + (1.0 - c) * t;
+    let intensity = 1.2 + activation * 7.0;
+    LinearRgba::rgb(
+        toward_white(base.0) * intensity,
+        toward_white(base.1) * intensity,
+        toward_white(base.2) * intensity,
+    )
+}
+
+fn bounds(nodes: &[NodePos]) -> (Vec3, f32) {
+    if nodes.is_empty() {
+        return (Vec3::ZERO, 30.0);
+    }
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    for n in nodes {
+        let p = Vec3::new(n.x, n.y, 0.0);
+        min = min.min(p);
+        max = max.max(p);
+    }
+    let center = (min + max) * 0.5;
+    let radius = ((max - min).length() * 0.5).max(10.0);
+    (center, radius)
+}
+
+fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
+    let cam = OrbitCamera {
+        focus,
+        radius: radius * 1.35,
+        yaw: 0.5,
+        pitch: 0.35,
+    };
     commands.spawn((
         Camera3d::default(),
+        Hdr,
+        Tonemapping::TonyMcMapface,
+        Bloom::NATURAL,
         Transform::from_translation(cam.eye()).looking_at(cam.focus, Vec3::Y),
         cam,
     ));
+}
 
-    // Key light
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 9000.0,
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(8.0, 16.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+/// Build a glowing line-strip mesh from a polyline (with normals/uvs so PBR is happy).
+fn line_mesh(points: &[Vec3]) -> Mesh {
+    let positions: Vec<[f32; 3]> = points.iter().map(|v| v.to_array()).collect();
+    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; points.len()];
+    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0]; points.len()];
+    Mesh::new(
+        PrimitiveTopology::LineStrip,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+}
 
-    // Placeholder grid of cubes — stand-in for the future GPU-instanced neuron field.
-    let mesh = meshes.add(Cuboid::new(0.6, 0.6, 0.6));
-    let n: i32 = 6;
-    for x in 0..n {
-        for z in 0..n {
-            let h = (x + z) as f32 / (2.0 * n as f32);
-            commands.spawn((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.2 + h, 0.5, 1.0 - h),
-                    emissive: LinearRgba::rgb(0.06, 0.18, 0.4),
-                    ..default()
-                })),
-                Transform::from_xyz(
-                    (x as f32 - n as f32 / 2.0) * 1.5,
-                    0.0,
-                    (z as f32 - n as f32 / 2.0) * 1.5,
-                ),
-            ));
+fn load_graph(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    db_path: Res<DbPath>,
+) {
+    let path = &db_path.0;
+    let db = match nbe_data::Db::open(path, None) {
+        Ok(d) => d,
+        Err(e) => {
+            warn!("could not open '{path}' ({e}); showing empty scene. If it's encrypted, decrypt or pass plaintext.");
+            spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+            return;
+        }
+    };
+    let snap = match nbe_data::snapshot::export(&db) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("could not read '{path}' ({e})");
+            spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+            return;
+        }
+    };
+
+    if snap.entities.is_empty() {
+        warn!("no data in '{path}'. Seed a demo graph with:  nbe --db {path} seed");
+        spawn_camera(&mut commands, Vec3::ZERO, 30.0);
+        return;
+    }
+    info!(
+        "loaded {} entities, {} edges from {path}",
+        snap.entities.len(),
+        snap.edges.len()
+    );
+
+    // Layer -> column mapping (derive hidden-layer count from the data).
+    let mut max_hidden = 0u8;
+    for l in &snap.layers {
+        if let Some(Layer::Hidden(n)) = Layer::from_db(&l.layer) {
+            max_hidden = max_hidden.max(n);
         }
     }
+    let last_col = max_hidden as u32 + 1;
+    let column = |s: &str| match Layer::from_db(s) {
+        Some(Layer::Input) => 0,
+        Some(Layer::Hidden(n)) => n as u32 + 1,
+        Some(Layer::Output) => last_col,
+        None => 0,
+    };
+
+    let nodes: Vec<LayoutNode> = snap
+        .layers
+        .iter()
+        .map(|l| LayoutNode {
+            id: l.entity_id.clone(),
+            column: column(&l.layer),
+        })
+        .collect();
+    let edges: Vec<(String, String)> = snap
+        .edges
+        .iter()
+        .map(|e| (e.source_id.clone(), e.target_id.clone()))
+        .collect();
+
+    let layout = layered_layout(&nodes, &edges, &LayoutParams::default());
+
+    let mut pos: HashMap<String, Vec3> = HashMap::new();
+    let mut col_of: HashMap<String, u32> = HashMap::new();
+    for np in &layout.nodes {
+        pos.insert(np.id.clone(), Vec3::new(np.x, np.y, depth(&np.id)));
+        col_of.insert(np.id.clone(), np.column);
+    }
+    let activation: HashMap<String, f64> = snap
+        .activations
+        .iter()
+        .map(|a| (a.entity_id.clone(), a.value))
+        .collect();
+
+    // Nodes: one shared sphere mesh, per-node emissive material + scale.
+    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
+    for np in &layout.nodes {
+        let a = *activation.get(&np.id).unwrap_or(&0.0) as f32;
+        let r = 0.18 + a * 0.45;
+        let mat = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.02, 0.06, 0.14),
+            emissive: node_emissive(a, np.column, last_col),
+            perceptual_roughness: 0.4,
+            ..default()
+        });
+        commands.spawn((
+            Mesh3d(sphere.clone()),
+            MeshMaterial3d(mat),
+            Transform::from_translation(pos[&np.id]).with_scale(Vec3::splat(r)),
+        ));
+    }
+
+    // Edges: organic curved synapses, one shared glowing material.
+    let edge_mat = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.0, 0.0, 0.0, 0.55),
+        emissive: LinearRgba::rgb(0.10, 0.55, 1.25),
+        alpha_mode: AlphaMode::Blend,
+        unlit: false,
+        ..default()
+    });
+    let curve_params = CurveParams {
+        samples: 20,
+        bow: 0.16,
+        sag: 0.04,
+        jitter: 0.02,
+        seed: 0x00E6,
+    };
+    for e in &snap.edges {
+        let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
+            continue;
+        };
+        let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
+        let mesh = meshes.add(line_mesh(&curve));
+        commands.spawn((Mesh3d(mesh), MeshMaterial3d(edge_mat.clone()), Transform::default()));
+    }
+
+    let (center, radius) = bounds(&layout.nodes);
+    spawn_camera(&mut commands, center, radius);
 }
 
 fn setup_hud(mut commands: Commands) {
     commands.spawn((
-        Text::new("booting…"),
+        Text::new("loading…"),
         TextFont {
-            font_size: 16.0,
+            font_size: 15.0,
             ..default()
         },
         TextColor(Color::srgb(0.7, 0.9, 1.0)),
@@ -159,9 +327,8 @@ fn update_hud(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, Wi
         .get(&FrameTimeDiagnosticsPlugin::FRAME_TIME)
         .and_then(|d| d.smoothed())
         .unwrap_or(0.0);
-
     for mut text in &mut query {
-        text.0 = format!("{fps:5.0} FPS   |   {frame_ms:5.2} ms/frame");
+        text.0 = format!("{fps:5.0} FPS   |   {frame_ms:5.2} ms   |   drag: orbit  scroll: zoom");
     }
 }
 
@@ -171,7 +338,6 @@ fn orbit_camera(
     mut wheel: MessageReader<MouseWheel>,
     mut query: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
-    // Drag with the left mouse button to rotate.
     let mut drag = Vec2::ZERO;
     if mouse_buttons.pressed(MouseButton::Left) {
         for ev in motion.read() {
@@ -181,7 +347,6 @@ fn orbit_camera(
         motion.clear();
     }
 
-    // Scroll to zoom.
     let mut scroll = 0.0;
     for ev in wheel.read() {
         scroll += ev.y;
@@ -190,7 +355,8 @@ fn orbit_camera(
     for (mut orbit, mut transform) in &mut query {
         orbit.yaw -= drag.x * 0.005;
         orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
-        orbit.radius = (orbit.radius - scroll * 1.5).clamp(3.0, 120.0);
+        let factor = (1.0 - scroll * 0.08).clamp(0.5, 2.0);
+        orbit.radius = (orbit.radius * factor).clamp(3.0, 600.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
     }
 }
