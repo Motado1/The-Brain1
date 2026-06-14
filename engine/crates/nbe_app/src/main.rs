@@ -125,15 +125,6 @@ fn rand_unit(id: &str, salt: u64) -> f32 {
     u * 2.0 - 1.0
 }
 
-/// Scattered 3D position: x by layer (with jitter), y/z randomly spread per node.
-fn scatter_pos(id: &str, column: u32) -> Vec3 {
-    Vec3::new(
-        column as f32 * LAYER_GAP + rand_unit(id, 1) * X_JITTER,
-        rand_unit(id, 2) * SPREAD,
-        rand_unit(id, 3) * SPREAD,
-    )
-}
-
 /// Emissive colour (HDR, can exceed 1.0 for bloom): hue by layer, white-hot by activation.
 fn node_emissive(activation: f32, column: u32, last: u32) -> LinearRgba {
     let base = if column == 0 {
@@ -265,9 +256,31 @@ fn load_graph(
 
     let layout = layered_layout(&nodes, &edges, &LayoutParams::default());
 
+    // Even "sunflower" distribution of each layer's nodes across a disc (in the y/z plane),
+    // with a touch of jitter — organized and clean, but still organic. x advances by layer.
+    let golden = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()); // ~2.39996 rad
+    let mut counts: HashMap<u32, usize> = HashMap::new();
+    for np in &layout.nodes {
+        *counts.entry(np.column).or_default() += 1;
+    }
+    let mut seen: HashMap<u32, usize> = HashMap::new();
     let mut pos: HashMap<String, Vec3> = HashMap::new();
     for np in &layout.nodes {
-        pos.insert(np.id.clone(), scatter_pos(&np.id, np.column));
+        let i = {
+            let e = seen.entry(np.column).or_default();
+            let v = *e;
+            *e += 1;
+            v
+        };
+        let n = (*counts.get(&np.column).unwrap_or(&1)).max(1);
+        let frac = (i as f32 + 0.5) / n as f32;
+        let radius = SPREAD * frac.sqrt();
+        let angle = i as f32 * golden;
+        let jitter = SPREAD * 0.06;
+        let x = np.column as f32 * LAYER_GAP + rand_unit(&np.id, 1) * X_JITTER;
+        let y = radius * angle.cos() + rand_unit(&np.id, 7) * jitter;
+        let z = radius * angle.sin() + rand_unit(&np.id, 8) * jitter;
+        pos.insert(np.id.clone(), Vec3::new(x, y, z));
     }
     let activation: HashMap<String, f64> = snap
         .activations
