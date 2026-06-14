@@ -648,6 +648,58 @@ pub fn package_add(
     ))
 }
 
+pub fn package_list(db: &nbe_data::Db, client: Option<&str>) -> Result<String> {
+    let all = repo::list_packages(&db.conn)?;
+    let packages: Vec<_> = match client {
+        Some(c) => {
+            let cid = resolve(db, c)?;
+            all.into_iter().filter(|p| p.client_id == cid).collect()
+        }
+        None => all,
+    };
+    if packages.is_empty() {
+        return Ok("no packages yet".into());
+    }
+    let mut out = format!("{} package(s):\n", packages.len());
+    for p in packages {
+        let used = repo::sessions_completed(&db.conn, &p.id)?;
+        let flag = if p.active { "active " } else { "       " };
+        out.push_str(&format!(
+            "  {}  {flag} {:<18} {} {}/{}  {}\n",
+            short(&p.id),
+            client_name(db, &p.client_id)?,
+            p.kind,
+            used,
+            p.total_sessions,
+            format_cents(p.price_cents),
+        ));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+/// Delete a package by short id. Sessions keep their history (their `package_id` is set NULL by
+/// the schema). Deleting the *active* package restores the client's previous package as active,
+/// so undoing a mistaken renewal puts things back.
+pub fn package_delete(db: &mut nbe_data::Db, prefix: &str) -> Result<String> {
+    let id = resolve_one(repo::find_package_ids_by_prefix(&db.conn, prefix)?, prefix, "package")?;
+    let pkg = repo::get_package(&db.conn, &id)?
+        .ok_or_else(|| Error::Msg("package vanished".into()))?;
+    repo::delete_package(&db.conn, &id)?;
+    let mut msg = format!(
+        "deleted {} {} for {}",
+        short(&id),
+        pkg.kind,
+        client_name(db, &pkg.client_id)?
+    );
+    if pkg.active {
+        if let Some(prev) = repo::latest_package(&db.conn, &pkg.client_id)? {
+            repo::set_package_active(&db.conn, &prev.id, true)?;
+            msg.push_str(&format!("; reactivated previous {}", prev.kind));
+        }
+    }
+    Ok(msg)
+}
+
 pub fn session_log(
     db: &mut nbe_data::Db,
     client: &str,

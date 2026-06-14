@@ -147,6 +147,13 @@ enum Command {
         #[arg(long)]
         date: Option<String>,
     },
+    /// List packages (optionally for one client) with their short ids.
+    PackageList {
+        #[arg(long)]
+        client: Option<String>,
+    },
+    /// Delete a package by short id (restores the previous package if it was active).
+    PackageDelete { id: String },
     /// Log a training session as it occurs.
     SessionLog {
         client: String,
@@ -339,6 +346,8 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             price,
             date,
         } => ops::package_add(&mut db, &client, &kind, &price, date.as_deref(), now),
+        Command::PackageList { client } => ops::package_list(&db, client.as_deref()),
+        Command::PackageDelete { id } => ops::package_delete(&mut db, &id),
         Command::SessionLog {
             client,
             date,

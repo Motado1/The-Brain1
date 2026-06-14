@@ -415,6 +415,26 @@ pub fn deactivate_packages(conn: &Connection, client_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The most recent package for a client (active or not) — used to restore the previous package
+/// after an erroneous renewal is deleted.
+pub fn latest_package(conn: &Connection, client_id: &str) -> Result<Option<Package>> {
+    Ok(conn
+        .query_row(
+            "SELECT * FROM package WHERE client_id = ?1 ORDER BY purchased_at DESC, id DESC LIMIT 1",
+            params![client_id],
+            package_from_row,
+        )
+        .optional()?)
+}
+
+pub fn set_package_active(conn: &Connection, id: &str, active: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE package SET active = ?2 WHERE id = ?1",
+        params![id, active],
+    )?;
+    Ok(())
+}
+
 pub fn active_package(conn: &Connection, client_id: &str) -> Result<Option<Package>> {
     Ok(conn
         .query_row(
@@ -430,6 +450,25 @@ pub fn active_packages(conn: &Connection) -> Result<Vec<Package>> {
     let mut stmt =
         conn.prepare("SELECT * FROM package WHERE active = 1 ORDER BY client_id")?;
     let rows = stmt.query_map([], package_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn get_package(conn: &Connection, id: &str) -> Result<Option<Package>> {
+    Ok(conn
+        .query_row("SELECT * FROM package WHERE id = ?1", params![id], package_from_row)
+        .optional()?)
+}
+
+pub fn delete_package(conn: &Connection, id: &str) -> Result<bool> {
+    Ok(conn.execute("DELETE FROM package WHERE id = ?1", params![id])? > 0)
+}
+
+/// Package ids beginning with `prefix` (for short-id resolution).
+pub fn find_package_ids_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<Id>> {
+    let cleaned: String = prefix.chars().filter(|c| *c != '%' && *c != '_').collect();
+    let pattern = format!("{cleaned}%");
+    let mut stmt = conn.prepare("SELECT id FROM package WHERE id LIKE ?1 ORDER BY id")?;
+    let rows = stmt.query_map(params![pattern], |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 

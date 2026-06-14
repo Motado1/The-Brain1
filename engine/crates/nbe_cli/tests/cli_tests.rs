@@ -294,6 +294,28 @@ fn agenda_lists_days_and_marks_logged() {
 }
 
 #[test]
+fn deleting_active_package_restores_previous() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    // original package, then a (mistaken) renewal that supersedes it.
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    ops::package_add(&mut db, &cid[..8], "PT20", "1900", None, NOW + 86_400).unwrap();
+    assert_eq!(repo::active_package(&db.conn, &cid).unwrap().unwrap().kind, "PT20");
+
+    // undo the renewal: delete the active PT20 -> PT10 becomes active again.
+    let pt20 = repo::list_packages(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|p| p.kind == "PT20")
+        .unwrap();
+    let msg = ops::package_delete(&mut db, &pt20.id[..8]).unwrap();
+    assert!(msg.contains("reactivated previous PT10"), "{msg}");
+    assert_eq!(repo::active_package(&db.conn, &cid).unwrap().unwrap().kind, "PT10");
+    assert_eq!(repo::list_packages(&db.conn).unwrap().len(), 1);
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");
