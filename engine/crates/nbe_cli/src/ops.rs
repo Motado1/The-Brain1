@@ -879,6 +879,54 @@ pub fn report_revenue(db: &nbe_data::Db) -> Result<String> {
     Ok(out.trim_end().to_string())
 }
 
+/// Day-by-day schedule for the next `days` days, derived from the recurring weekly slots, with a
+/// ✓ against any client already logged (completed) that day. The trainer's at-a-glance week.
+pub fn agenda(db: &nbe_data::Db, days: i64, now: i64) -> Result<String> {
+    use std::collections::HashSet;
+    let slots = repo::list_slots(&db.conn)?;
+    if slots.is_empty() {
+        return Ok("no slots scheduled".into());
+    }
+    // (client, day-since-epoch) pairs that already have a completed session.
+    let logged: HashSet<(String, i64)> = repo::list_sessions(&db.conn)?
+        .into_iter()
+        .filter(|s| s.status == "completed")
+        .map(|s| (s.client_id, s.occurred_at.div_euclid(86_400)))
+        .collect();
+
+    let today = now.div_euclid(86_400);
+    let mut out = format!("Agenda — next {days} day(s):\n");
+    let mut any = false;
+    for off in 0..days.max(0) {
+        let day = today + off;
+        let wd = crate::datetime::weekday_from_epoch(day * 86_400);
+        let mut day_slots: Vec<&Slot> = slots.iter().filter(|s| s.weekday == wd).collect();
+        if day_slots.is_empty() {
+            continue;
+        }
+        any = true;
+        day_slots.sort_by_key(|s| s.start_min);
+        out.push_str(&format!("  {} {}:\n", weekday_name(wd), format_date(day * 86_400)));
+        for s in day_slots {
+            let mark = if logged.contains(&(s.client_id.clone(), day)) {
+                "  ✓ logged"
+            } else {
+                ""
+            };
+            out.push_str(&format!(
+                "    {}  {:<20} {}min{mark}\n",
+                fmt_hhmm(s.start_min),
+                client_name(db, &s.client_id)?,
+                s.duration_min,
+            ));
+        }
+    }
+    if !any {
+        out.push_str("  (nothing scheduled in this window)\n");
+    }
+    Ok(out.trim_end().to_string())
+}
+
 pub fn report_hours(db: &nbe_data::Db) -> Result<String> {
     let mut by_day = [0.0_f64; 7];
     for s in repo::list_slots(&db.conn)? {

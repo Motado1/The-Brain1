@@ -269,6 +269,31 @@ fn slot_can_be_edited_and_removed() {
 }
 
 #[test]
+fn agenda_lists_days_and_marks_logged() {
+    let mut db = Db::open_in_memory().unwrap();
+    let monday = parse_date("2026-06-15").unwrap(); // a Monday
+    ops::client_add(&mut db, "Acme", "active", None, None, monday).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0).unwrap();
+
+    // before logging: client appears, not yet ✓.
+    let before = ops::agenda(&db, 1, monday).unwrap();
+    assert!(before.contains("Mon 2026-06-15"), "{before}");
+    assert!(before.contains("Acme"), "{before}");
+    assert!(!before.contains("✓"), "not logged yet: {before}");
+
+    // after logging a session that day: ✓.
+    ops::session_log(&mut db, &cid[..8], Some("2026-06-15"), "completed", None, monday).unwrap();
+    let after = ops::agenda(&db, 1, monday).unwrap();
+    assert!(after.contains("✓ logged"), "{after}");
+
+    // a window with no matching slots says so (Tue..Sun has none).
+    let tuesday = parse_date("2026-06-16").unwrap();
+    let empty = ops::agenda(&db, 1, tuesday).unwrap();
+    assert!(empty.contains("nothing scheduled"), "{empty}");
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

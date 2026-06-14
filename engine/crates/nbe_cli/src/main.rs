@@ -207,6 +207,11 @@ enum Command {
     ReportRevenue,
     /// Weekly work hours from slots.
     ReportHours,
+    /// Day-by-day schedule for the days ahead (from recurring slots), marking logged sessions.
+    Agenda {
+        #[arg(long, default_value_t = 7)]
+        days: i64,
+    },
     /// Active packages: remaining sessions + renewal ETA.
     ReportSessions,
     /// Save the Google Calendar private ICS URL.
@@ -379,6 +384,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         Command::SlotDelete { id } => ops::slot_delete(&mut db, &id),
         Command::ReportRevenue => ops::report_revenue(&db),
         Command::ReportHours => ops::report_hours(&db),
+        Command::Agenda { days } => ops::agenda(&db, days, now),
         Command::ReportSessions => ops::report_sessions(&db, now),
         Command::CalendarSetUrl { url } => ops::calendar_set_url(&db, &url),
         Command::CalendarSync { file } => ops::calendar_sync(&mut db, file.as_deref(), now),

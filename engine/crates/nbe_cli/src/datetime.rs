@@ -47,9 +47,23 @@ pub fn format_date(epoch: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Weekday for a unix timestamp, 0=Mon .. 6=Sun (matching `Slot.weekday`). 1970-01-01 was a
+/// Thursday (=3), so the count of days since the epoch is offset by 3.
+pub fn weekday_from_epoch(epoch: i64) -> i64 {
+    (epoch.div_euclid(86_400) + 3).rem_euclid(7)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weekday_matches_known_dates() {
+        // 1970-01-01 Thu, 2024-01-01 Mon, 2026-06-14 Sun.
+        assert_eq!(weekday_from_epoch(0), 3);
+        assert_eq!(weekday_from_epoch(parse_date("2024-01-01").unwrap()), 0);
+        assert_eq!(weekday_from_epoch(parse_date("2026-06-14").unwrap()), 6);
+    }
 
     #[test]
     fn epoch_zero_is_1970() {
