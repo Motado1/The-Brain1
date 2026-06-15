@@ -33,7 +33,9 @@ iteration).
 - `nbe_cli` — **the hub** (`nbe` binary): clients, PT packages/sessions/slots, invoices/expenses,
   notes, links; reports (revenue cash+earned, work-hours, renewals, activation, **agenda**,
   **forecast** = projected monthly income, **retention** = renewal/repeat rates,
-  **nudges** = clients about to run out of sessions, re-sell before they lapse);
+  **nudges** = clients about to run out of sessions, re-sell before they lapse,
+  **today** = one-glance morning briefing composing today's sessions + renewals due this week +
+  low packages);
   `recompute-activation` (persist fresh activation from facets for the renderer); calendar-sync;
   **research topics/tags** (`note-tag`/`note-untag`/`topic-list`, `note-list --tag`): a topic is a
   hub neuron in the Research region, notes link to it — so tagged research clusters in the brain;
@@ -52,6 +54,14 @@ iteration).
   scene rebuild (`SceneItem` marker + `build_scene` + `apply_reload`), so the new note/topic neurons
   appear without restart. First write-from-UI action + the reusable live-update loop for all future
   buttons. *Compiles clean (cargo check) but unverified visually — needs a desktop run.*
+  **The "alive" layer** (domain-independent, rides an addressable `BrainGraph` of node handles +
+  edge adjacency built at scene time): neurons **fire** (integrate-and-fire — a base ambient charge
+  for everyone plus more scaled by real activation/need; flares emissive + swells the halo, then
+  decays); firing **propagates** pulses of light along outgoing edges into neighbours, which can
+  re-fire — capped/attenuated cascades that fade; **ambient shimmer + drifting dust motes** keep it
+  alive at rest. Activation is **recomputed from facets on load** so liveliness tracks real urgency.
+  Tunables are `const`s at the top of `nbe_app/src/main.rs` (FIRE_BASE/FIRE_NEED/FIRE_DECAY/
+  FLARE_GAIN/PULSE_ENERGY/…). *Compiles + clippy clean; needs a desktop run to tune the look.*
 
 > **Direction:** the GUI is becoming the primary interface (the owner avoids the terminal). Plan:
 > every `ops` handler gets a button + live redraw; CLI stays as the tested engine/fallback. Phased UI
@@ -99,6 +109,10 @@ cargo run -p nbe_app --release -- --db demo.db
 First-time setup script: `engine/scripts/setup-windows.ps1` (installs Rust/MSVC/Perl/NASM, builds).
 
 ## NEXT STEPS (in priority order)
+0. **Verify + tune the "alive" layer at the desktop** (just built, unrun): confirm firing flares,
+   propagation cascades, and ambient motes read well; tune the `const`s (firing base vs need
+   balance, flare/decay, cascade energy). Then optionally surface a **Today** tab in the Business
+   panel reusing `ops::today`.
 1. **Tune the brain overview** from the latest screenshot: hemisphere proportions, central
    fissure, optional brainstem stalk, hotspot amount, node density.
 2. **Zoom-in level-of-detail (the big one):** flying into a client makes it the large cell-body
