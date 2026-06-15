@@ -238,11 +238,18 @@ fn main() {
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())
         .insert_resource(BusinessPanel::default())
+        .insert_resource(SceneControl::default())
         .add_systems(Startup, (load_graph, setup_hud))
         .add_systems(EguiPrimaryContextPass, (sidebar_ui, business_panel_ui))
         .add_systems(
             Update,
-            (orbit_camera, update_hud, animate_breath, animate_sparks),
+            (
+                orbit_camera,
+                update_hud,
+                animate_breath,
+                animate_sparks,
+                apply_reload,
+            ),
         )
         .run();
 }
@@ -285,6 +292,18 @@ struct Spark {
 
 #[derive(Resource, Default)]
 struct EdgePaths(Vec<Vec<Vec3>>);
+
+/// Tags every entity the scene builder spawns (nodes, edges, sparks) so a rebuild can despawn the
+/// whole graph and re-create it from the DB — the camera/HUD (untagged) persist.
+#[derive(Component)]
+struct SceneItem;
+
+/// Cross-system signal + status line for button actions that change the DB and need a redraw.
+#[derive(Resource, Default)]
+struct SceneControl {
+    reload: bool,
+    status: String,
+}
 
 fn hash_u64(s: &str) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -431,27 +450,71 @@ fn load_graph(
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
 ) {
-    let path = &db_path.0;
+    let (center, radius) = build_scene(
+        &mut commands,
+        meshes.as_mut(),
+        materials.as_mut(),
+        registry.as_mut(),
+        &db_path.0,
+    )
+    .unwrap_or((Vec3::ZERO, 200.0));
+    spawn_camera(&mut commands, center, radius);
+}
+
+/// Rebuild the graph from the DB when a button has changed it: despawn the old scene and re-create
+/// it. The camera persists (untagged), so the view stays put while new neurons pop in.
+fn apply_reload(
+    mut control: ResMut<SceneControl>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut registry: ResMut<NodeRegistry>,
+    db_path: Res<DbPath>,
+    old: Query<Entity, With<SceneItem>>,
+) {
+    if !control.reload {
+        return;
+    }
+    control.reload = false;
+    for e in &old {
+        commands.entity(e).despawn();
+    }
+    build_scene(
+        &mut commands,
+        meshes.as_mut(),
+        materials.as_mut(),
+        registry.as_mut(),
+        &db_path.0,
+    );
+}
+
+/// Load the DB and spawn the whole brain (nodes, edges, sparks), all tagged `SceneItem`. Returns
+/// the framing bounds `(center, radius)`, or `None` if the DB is missing/empty.
+fn build_scene(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    registry: &mut NodeRegistry,
+    path: &str,
+) -> Option<(Vec3, f32)> {
+    registry.nodes.clear();
     let db = match nbe_data::Db::open(path, None) {
         Ok(d) => d,
         Err(e) => {
             warn!("could not open '{path}' ({e}); empty scene.");
-            spawn_camera(&mut commands, Vec3::ZERO, 200.0);
-            return;
+            return None;
         }
     };
     let snap = match nbe_data::snapshot::export(&db) {
         Ok(s) => s,
         Err(e) => {
             warn!("could not read '{path}' ({e})");
-            spawn_camera(&mut commands, Vec3::ZERO, 200.0);
-            return;
+            return None;
         }
     };
     if snap.entities.is_empty() {
         warn!("no data in '{path}'. Seed with:  nbe --db {path} seed");
-        spawn_camera(&mut commands, Vec3::ZERO, 200.0);
-        return;
+        return None;
     }
     info!("loaded {} entities, {} edges", snap.entities.len(), snap.edges.len());
 
@@ -525,6 +588,7 @@ fn load_graph(
                     phase: rand_unit(id, 9) * std::f32::consts::TAU,
                     speed: 0.6 + rand01(id, 10) * 0.8,
                 },
+                SceneItem,
             ));
             registry.nodes.push(NodeInfo {
                 name: name_of.get(id).cloned().unwrap_or_else(|| id[..8].to_string()),
@@ -561,6 +625,7 @@ fn load_graph(
             Mesh3d(meshes.add(line_mesh(&curve))),
             MeshMaterial3d(edge_mat.clone()),
             Transform::default(),
+            SceneItem,
         ));
         edge_paths.push(curve);
     }
@@ -589,6 +654,7 @@ fn load_graph(
                     speed,
                     rng: s ^ (k as u64 + 1),
                 },
+                SceneItem,
             ));
         }
     }
@@ -598,7 +664,7 @@ fn load_graph(
     let (center, radius) = bounds(&all);
     registry.galaxy_center = center;
     registry.galaxy_radius = radius;
-    spawn_camera(&mut commands, center, radius);
+    Some((center, radius))
 }
 
 // ---- UI + camera -----------------------------------------------------------------------
@@ -607,6 +673,8 @@ fn sidebar_ui(
     mut contexts: EguiContexts,
     registry: Res<NodeRegistry>,
     mut target: ResMut<CameraTarget>,
+    mut control: ResMut<SceneControl>,
+    db_path: Res<DbPath>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
@@ -615,6 +683,31 @@ fn sidebar_ui(
         .default_width(250.0)
         .show(ctx, |ui| {
             ui.heading("The Brain");
+            if ui.button("➕ Add Research").clicked() {
+                if let Some(file) = rfd::FileDialog::new()
+                    .add_filter("Markdown", &["md", "markdown", "txt"])
+                    .pick_file()
+                {
+                    let mut reload = false;
+                    let status = match nbe_data::Db::open(&db_path.0, None) {
+                        Ok(mut db) => {
+                            match nbe_cli::ops::note_import(&mut db, &file, &[], None, "draft", now_unix()) {
+                                Ok(msg) => {
+                                    reload = true;
+                                    msg
+                                }
+                                Err(e) => format!("import failed: {e}"),
+                            }
+                        }
+                        Err(e) => format!("cannot open db: {e}"),
+                    };
+                    control.status = status;
+                    control.reload = reload;
+                }
+            }
+            if !control.status.is_empty() {
+                ui.label(&control.status);
+            }
             if ui.button("Galaxy view").clicked() {
                 target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
             }

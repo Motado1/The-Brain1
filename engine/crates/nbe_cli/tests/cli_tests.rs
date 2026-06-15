@@ -557,6 +557,75 @@ fn nudges_flag_clients_running_low() {
 }
 
 #[test]
+fn note_import_front_matter_creates_note_and_topics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("creatine.md");
+    std::fs::write(
+        &path,
+        "---\ntitle: Creatine basics\ntags: Nutrition, Supplements\n---\n\nCreatine helps power output.\n",
+    )
+    .unwrap();
+
+    let mut db = Db::open_in_memory().unwrap();
+    let msg = ops::note_import(&mut db, &path, &[], None, "draft", NOW).unwrap();
+    assert!(msg.contains("Creatine basics"), "{msg}");
+    assert!(msg.contains("Nutrition") && msg.contains("Supplements"), "{msg}");
+
+    assert!(ops::note_list(&db, None).unwrap().contains("Creatine basics"));
+    assert!(ops::note_list(&db, Some("Nutrition")).unwrap().contains("Creatine basics"));
+    assert!(ops::note_list(&db, Some("Supplements")).unwrap().contains("Creatine basics"));
+
+    // body content is preserved under a single title heading.
+    let note = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|k| k.body_md.starts_with("# Creatine basics"))
+        .unwrap();
+    assert!(note.body_md.contains("power output"), "{}", note.body_md);
+}
+
+#[test]
+fn note_import_merges_passed_topic_and_applies_overrides() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("doc.md");
+    std::fs::write(&path, "Tags: Nutrition\n\nbody text\n").unwrap();
+
+    let mut db = Db::open_in_memory().unwrap();
+    ops::note_import(
+        &mut db,
+        &path,
+        &["Hypertrophy".to_string()],
+        Some("My Title"),
+        "reviewed",
+        NOW,
+    )
+    .unwrap();
+
+    assert!(ops::note_list(&db, Some("Nutrition")).unwrap().contains("My Title"));
+    assert!(ops::note_list(&db, Some("Hypertrophy")).unwrap().contains("My Title"));
+    let note = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|k| k.body_md.starts_with("# My Title"))
+        .unwrap();
+    assert_eq!(note.review_status, "reviewed", "status override applied");
+}
+
+#[test]
+fn note_import_plain_file_titles_from_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("squat_cues.md");
+    std::fs::write(&path, "brace, knees out, drive\n").unwrap();
+
+    let mut db = Db::open_in_memory().unwrap();
+    let msg = ops::note_import(&mut db, &path, &[], None, "draft", NOW).unwrap();
+    assert!(msg.contains("squat_cues"), "title from filename: {msg}");
+    assert!(msg.contains("no tags"), "{msg}");
+    assert!(ops::note_list(&db, None).unwrap().contains("squat_cues"));
+    assert!(ops::topic_list(&db).unwrap().contains("no topics"), "no topics created");
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

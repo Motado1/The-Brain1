@@ -88,6 +88,17 @@ enum Command {
         #[arg(long)]
         template: Option<String>,
     },
+    /// Import a markdown file (e.g. a Gemini doc) as a note, linked to topics from its
+    /// Tags: line/front-matter plus any --topic given.
+    NoteImport {
+        path: PathBuf,
+        #[arg(long)]
+        topic: Vec<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long, default_value = "draft")]
+        status: String,
+    },
     /// List notes (optionally only those tagged with a topic).
     NoteList {
         #[arg(long)]
@@ -342,6 +353,12 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             body,
             template,
         } => ops::note_add(&mut db, &title, &body, template.as_deref(), now),
+        Command::NoteImport {
+            path,
+            topic,
+            title,
+            status,
+        } => ops::note_import(&mut db, &path, &topic, title.as_deref(), &status, now),
         Command::NoteList { tag } => ops::note_list(&db, tag.as_deref()),
         Command::NoteTag { note, topic } => ops::note_tag(&mut db, &note, &topic, now),
         Command::NoteUntag { note, topic } => ops::note_untag(&mut db, &note, &topic),

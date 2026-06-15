@@ -12,3 +12,6 @@ nbe_data = { path = "../nbe_data" }
 nbe_layout = { path = "../nbe_layout" }
 nbe_geometry = { path = "../nbe_geometry" }
 nbe_cli = { path = "../nbe_cli" }
+# Native file-open dialog for the "Add Research" button. On Windows this uses the native Win32
+# picker; the xdg-portal backend keeps the Linux build free of GTK system deps (for CI/checks).
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }

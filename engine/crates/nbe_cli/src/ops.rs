@@ -481,6 +481,155 @@ pub fn note_review(db: &mut nbe_data::Db, note_prefix: &str, now: i64) -> Result
     ))
 }
 
+/// Parse a lightweight import header: a YAML-ish front-matter block (`---`…`---`) or leading
+/// `Title:` / `Tags:` lines before the first blank line. Returns `(title, tags, body)` with the
+/// header stripped from the body.
+fn parse_import_header(content: &str) -> (Option<String>, Vec<String>, String) {
+    let mut title = None;
+    let mut tags: Vec<String> = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Front-matter block.
+    if lines.first().map(|l| l.trim()) == Some("---") {
+        if let Some(rel_end) = lines.iter().skip(1).position(|l| l.trim() == "---") {
+            let close = rel_end + 1; // index of the closing ---
+            for l in &lines[1..close] {
+                parse_header_kv(l, &mut title, &mut tags);
+            }
+            let body = lines[close + 1..].join("\n");
+            return (title, tags, body.trim_start_matches('\n').to_string());
+        }
+    }
+
+    // Leading Title:/Tags: lines.
+    let mut consumed = 0;
+    for l in &lines {
+        let t = l.trim();
+        if t.is_empty() {
+            break;
+        }
+        let lower = t.to_ascii_lowercase();
+        if lower.starts_with("title:") || lower.starts_with("tags:") {
+            parse_header_kv(l, &mut title, &mut tags);
+            consumed += 1;
+        } else {
+            break;
+        }
+    }
+    if consumed > 0 {
+        let body = lines[consumed..].join("\n");
+        return (title, tags, body.trim_start_matches('\n').to_string());
+    }
+
+    (None, tags, content.to_string())
+}
+
+fn parse_header_kv(line: &str, title: &mut Option<String>, tags: &mut Vec<String>) {
+    let Some((k, v)) = line.split_once(':') else {
+        return;
+    };
+    let val = v.trim().trim_matches(['"', '\'']).trim();
+    match k.trim().to_ascii_lowercase().as_str() {
+        "title" if !val.is_empty() => *title = Some(val.to_string()),
+        "tags" => {
+            let val = val.trim_start_matches('[').trim_end_matches(']');
+            for part in val.split(',') {
+                let p = part.trim().trim_matches(['"', '\'']).trim();
+                if !p.is_empty() {
+                    tags.push(p.to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn first_heading(body: &str) -> Option<String> {
+    body.lines()
+        .find_map(|l| l.trim().strip_prefix("# ").map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// Import a markdown file (e.g. a Gemini research doc) as a note neuron, linking it to one or more
+/// topic hubs. Topics come from a `Tags:` line/front-matter in the file plus any passed in. Offline
+/// — the file is the bridge; The Brain never calls a cloud API.
+pub fn note_import(
+    db: &mut nbe_data::Db,
+    path: &std::path::Path,
+    topics: &[String],
+    title: Option<&str>,
+    status: &str,
+    now: i64,
+) -> Result<String> {
+    let content = std::fs::read_to_string(path)?;
+    let (parsed_title, parsed_tags, body) = parse_import_header(&content);
+
+    let title_str = title
+        .map(str::to_string)
+        .or(parsed_title)
+        .or_else(|| first_heading(&body))
+        .or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "Untitled".into());
+
+    // Drop a leading H1 (we re-add an authoritative one) so there's exactly one title line.
+    let body_inner = {
+        let t = body.trim_start();
+        match t.strip_prefix("# ") {
+            Some(rest) => rest.split_once('\n').map(|(_, a)| a).unwrap_or("").trim_start_matches('\n'),
+            None => t,
+        }
+    };
+    let body_md = format!("# {title_str}\n\n{body_inner}").trim_end().to_string();
+
+    let id = new_entity(db, now)?;
+    repo::upsert_knowledge(
+        &db.conn,
+        &KnowledgeFacet {
+            entity_id: id.clone(),
+            body_md,
+            template_type: None,
+            review_status: status.to_string(),
+        },
+    )?;
+    repo::set_layer(&db.conn, &id, &Layer::Hidden(1))?;
+    set_activation(db, &id, 0.3)?;
+
+    // Merge in-doc tags with passed topics, dedupe case-insensitively.
+    let mut all_topics: Vec<String> = Vec::new();
+    for t in parsed_tags.iter().chain(topics.iter()) {
+        let t = t.trim();
+        if !t.is_empty() && !all_topics.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+            all_topics.push(t.to_string());
+        }
+    }
+    for t in &all_topics {
+        let topic_id = ensure_topic(db, t, now)?;
+        let already = repo::outgoing(&db.conn, &id)?
+            .into_iter()
+            .any(|e| e.target_id == topic_id && e.edge_type == "topic");
+        if !already {
+            repo::insert_edge(
+                &db.conn,
+                &Edge {
+                    id: new_id(),
+                    source_id: id.clone(),
+                    target_id: topic_id,
+                    edge_type: "topic".into(),
+                    weight: 1.0,
+                    directed: true,
+                },
+            )?;
+        }
+    }
+
+    let tail = if all_topics.is_empty() {
+        " (no tags — add a Tags: line or pass a topic)".to_string()
+    } else {
+        format!("; tagged [{}]", all_topics.join(", "))
+    };
+    Ok(format!("imported '{title_str}' as note {}{tail}", short(&id)))
+}
+
 /// List every topic with how many notes carry it.
 pub fn topic_list(db: &nbe_data::Db) -> Result<String> {
     let topics = repo::list_topics(&db.conn)?;

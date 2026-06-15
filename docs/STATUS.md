@@ -39,14 +39,23 @@ iteration).
   hub neuron in the Research region, notes link to it — so tagged research clusters in the brain;
   **brush-up/review** (`review [--tag] [--limit]`, `note-review`): least-recently-reviewed notes
   first; reviewing fires the note's neuron (lights it up, cools over the recall window);
+  **research import** (`note-import <file.md>`): parse a markdown doc (front-matter / `Title:`/`Tags:`
+  header), create a note, link it to topic hubs — the backend for the GUI "Add Research" button;
   export/import. **Edits/state-transitions:** `client-update`, `note-update`, `unlink`, `delete`
   (cascades facets/edges/packages/sessions/slots); `session-list/update/delete`,
   `slot-update/delete`, `package-list/delete` (deleting an active package restores the
   previous one); short-id resolution like entities. Lib+bin, fully tested.
 - `nbe_app` — **the renderer** (Bevy 0.18 + bevy_egui 0.39). Loads a `--db`, renders the Brain.
   Right-hand **Business panel** (tab buttons: Agenda/Sessions/Renewals/Forecast/Revenue/Retention
-  + Refresh) reuses the `nbe_cli::ops` report handlers, read-only. *Compiles clean (cargo check) but
-  unverified visually — needs a desktop run; layout/colors to iterate. Editing-from-UI not wired yet.*
+  + Refresh) reuses the `nbe_cli::ops` report handlers, read-only.
+  **➕ Add Research button** (left sidebar): native file dialog (`rfd`) → `ops::note_import` → live
+  scene rebuild (`SceneItem` marker + `build_scene` + `apply_reload`), so the new note/topic neurons
+  appear without restart. First write-from-UI action + the reusable live-update loop for all future
+  buttons. *Compiles clean (cargo check) but unverified visually — needs a desktop run.*
+
+> **Direction:** the GUI is becoming the primary interface (the owner avoids the terminal). Plan:
+> every `ops` handler gets a button + live redraw; CLI stays as the tested engine/fallback. Phased UI
+> build-out (UI-0 foundations/selection+detail → UI-1 research → UI-2 clients/PT → …) is in the plan.
 
 > **Headless build note:** compiling `nbe_app` on Linux needs system libs:
 > `libwayland-dev libxkbcommon-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev
