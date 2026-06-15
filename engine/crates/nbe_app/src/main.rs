@@ -22,7 +22,7 @@ use bevy::prelude::*;
 use bevy::render::settings::{Backends, PowerPreference, RenderCreation, WgpuSettings};
 use bevy::render::view::Hdr;
 use bevy::render::RenderPlugin;
-use bevy::window::WindowResolution;
+use bevy::window::{PrimaryWindow, WindowResolution};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
 use nbe_cli::datetime::format_date;
@@ -291,7 +291,7 @@ fn main() {
         .insert_resource(BusinessPanel::default())
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())
-        .add_systems(Startup, (load_graph, setup_hud))
+        .add_systems(Startup, (load_graph, setup_hud, spawn_lights))
         .add_systems(
             EguiPrimaryContextPass,
             (sidebar_ui, business_panel_ui, sync_ui_pointer).chain(),
@@ -523,6 +523,12 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
         Hdr,
         Tonemapping::TonyMcMapface,
         Bloom::NATURAL,
+        // A touch of cool ambient so the glass tubes aren't pure black where unlit.
+        AmbientLight {
+            color: Color::srgb(0.5, 0.65, 1.0),
+            brightness: 60.0,
+            ..default()
+        },
         Transform::from_translation(cam.eye()).looking_at(cam.focus, Vec3::Y),
         cam,
     ));
@@ -730,13 +736,16 @@ fn build_scene(
 
     // Edges: hollow glass tubes (stronger ones only), reused by the sparks. Only ever drawn
     // between two nodes in the *same* network — no lines stretch across the void.
+    // Clear glass: low roughness gives a sharp specular streak under the lights (the round-tube
+    // cue), a faint blue tint + low alpha let you see through, and a gentle emissive keeps a glow.
     let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.45, 0.75, 1.0, 0.12),
-        emissive: LinearRgba::rgb(0.07, 0.3, 0.6),
+        base_color: Color::srgba(0.55, 0.8, 1.0, 0.18),
+        emissive: LinearRgba::rgb(0.12, 0.4, 0.8),
         alpha_mode: AlphaMode::Blend,
         cull_mode: None,
-        perceptual_roughness: 0.25,
+        perceptual_roughness: 0.06,
         metallic: 0.0,
+        reflectance: 0.7,
         ..default()
     });
     let curve_params = CurveParams {
@@ -746,6 +755,19 @@ fn build_scene(
         jitter: 0.015,
         seed: 0x00E6,
     };
+    let spawn_tube = |commands: &mut Commands,
+                          meshes: &mut Assets<Mesh>,
+                          edge_paths: &mut Vec<Vec<Vec3>>,
+                          curve: Vec<Vec3>| {
+        commands.spawn((
+            Mesh3d(meshes.add(tube_mesh(&curve, 0.3, 8))),
+            MeshMaterial3d(edge_mat.clone()),
+            Transform::default(),
+            SceneItem,
+        ));
+        edge_paths.push(curve);
+    };
+
     let mut edge_paths: Vec<Vec<Vec3>> = Vec::new();
     for e in &snap.edges {
         if e.weight < EDGE_WEIGHT_MIN {
@@ -760,33 +782,52 @@ fn build_scene(
             continue;
         }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
-        commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(&curve, 0.16, 6))),
-            MeshMaterial3d(edge_mat.clone()),
-            Transform::default(),
-            SceneItem,
-        ));
-        edge_paths.push(curve);
+        spawn_tube(commands, meshes, &mut edge_paths, curve);
     }
 
-    // Action-potential sparks.
+    // The Research network's native links all point across to clients/ledger (dropped above), so
+    // it arrives as loose dust. Weave a proximity web — each note to its 2 nearest neighbours — so
+    // it reads as its own constellation. (Real Add-Research notes link to topic hubs over time.)
+    if let Some(rids) = groups.get(&Network::Research) {
+        let rpos: Vec<Vec3> = rids.iter().map(|id| pos[id]).collect();
+        let mut linked: HashSet<(usize, usize)> = HashSet::new();
+        for i in 0..rpos.len() {
+            let mut nearest: Vec<(f32, usize)> = (0..rpos.len())
+                .filter(|&j| j != i)
+                .map(|j| (rpos[i].distance_squared(rpos[j]), j))
+                .collect();
+            nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for &(_, j) in nearest.iter().take(2) {
+                let key = (i.min(j), i.max(j));
+                if !linked.insert(key) {
+                    continue;
+                }
+                let seed = (key.0 as u64) << 20 ^ key.1 as u64;
+                let curve = edge_curve(rpos[i], rpos[j], 0.7, &curve_params, seed);
+                spawn_tube(commands, meshes, &mut edge_paths, curve);
+            }
+        }
+    }
+
+    // Travelling light: a slow, soft pulse of light coursing down each pathway (not a hard dot).
+    // Spawned as an elongated emissive glow stretched along the tube; bloom turns it into a streak.
     if !edge_paths.is_empty() {
-        let spark_mat = materials.add(StandardMaterial {
+        let pulse_mat = materials.add(StandardMaterial {
             base_color: Color::BLACK,
-            emissive: LinearRgba::rgb(7.0, 3.0, 0.6),
+            emissive: LinearRgba::rgb(2.5, 4.5, 8.0),
+            alpha_mode: AlphaMode::Add,
             ..default()
         });
-        let spark_count = (edge_paths.len() * 3 / 2).clamp(20, 400);
+        let pulse_count = (edge_paths.len() / 2).clamp(16, 220);
         let mut s = 0x9E37_79B9u64;
-        for k in 0..spark_count {
+        for k in 0..pulse_count {
             let path = (lcg(&mut s) * edge_paths.len() as f32) as usize % edge_paths.len();
             let t = lcg(&mut s);
-            let speed = 0.12 + lcg(&mut s) * 0.35;
-            let p = sample_path(&edge_paths[path], t);
+            let speed = 0.05 + lcg(&mut s) * 0.1; // slowish
             commands.spawn((
                 Mesh3d(sphere.clone()),
-                MeshMaterial3d(spark_mat.clone()),
-                Transform::from_translation(p).with_scale(Vec3::splat(0.32)),
+                MeshMaterial3d(pulse_mat.clone()),
+                Transform::from_translation(sample_path(&edge_paths[path], t)),
                 Spark {
                     path,
                     t,
@@ -984,7 +1025,8 @@ fn orbit_camera(
     mut target: ResMut<CameraTarget>,
     registry: Res<NodeRegistry>,
     ui: Res<UiPointer>,
-    mut query: Query<(&mut OrbitCamera, &mut Transform)>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut query: Query<(&mut OrbitCamera, &mut Transform, &Camera, &GlobalTransform)>,
 ) {
     let orbiting = mouse_buttons.pressed(MouseButton::Left);
     let panning =
@@ -1018,7 +1060,9 @@ fn orbit_camera(
         target.0 = None;
     }
 
-    for (mut orbit, mut transform) in &mut query {
+    let cursor = windows.single().ok().and_then(|w| w.cursor_position());
+
+    for (mut orbit, mut transform, camera, cam_global) in &mut query {
         if let Some((focus, radius)) = target.0 {
             let k = (time.delta_secs() * 3.5).min(1.0);
             orbit.focus = orbit.focus.lerp(focus, k);
@@ -1041,8 +1085,13 @@ fn orbit_camera(
             orbit.focus += (-right * drag.x + up * drag.y) * (radius * 0.0015);
         }
         if scroll != 0.0 {
-            // Dolly: fly the camera forward/back along the view direction (not just zoom distance).
-            orbit.focus += forward * scroll * (radius * 0.15 + 4.0);
+            // Dolly toward the point under the cursor: fly along the ray through the mouse, so
+            // scrolling targets where you're looking (falls back to screen-center if no cursor).
+            let dir = cursor
+                .and_then(|c| camera.viewport_to_world(cam_global, c).ok())
+                .map(|ray| ray.direction.as_vec3())
+                .unwrap_or(forward);
+            orbit.focus += dir * scroll * (radius * 0.15 + 4.0);
         }
         orbit.radius = orbit.radius.clamp(1.0, 6000.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
@@ -1071,10 +1120,43 @@ fn animate_sparks(
         if spark.t >= 1.0 {
             spark.t -= 1.0;
             spark.path = (lcg(&mut spark.rng) * paths.0.len() as f32) as usize % paths.0.len();
-            spark.speed = 0.12 + lcg(&mut spark.rng) * 0.35;
+            spark.speed = 0.05 + lcg(&mut spark.rng) * 0.1;
         }
-        transform.translation = sample_path(&paths.0[spark.path], spark.t);
+        let path = &paths.0[spark.path];
+        let t = spark.t;
+        let a = sample_path(path, (t - 0.015).max(0.0));
+        let b = sample_path(path, (t + 0.015).min(1.0));
+        transform.translation = sample_path(path, t);
+        let dir = (b - a).normalize_or_zero();
+        if dir.length_squared() > 1e-6 {
+            transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
+        }
+        // Fade in/out toward the node ends so the pulse swells mid-pathway, like a light surge.
+        let env = (t * std::f32::consts::PI).sin().max(0.0);
+        let glow = 0.2 + 0.8 * env;
+        transform.scale = Vec3::new(0.45 * glow, 0.45 * glow, 3.0 * glow);
     }
+}
+
+/// Two directional lights from opposite sides — they don't brighten the scene much (nodes are
+/// emissive) but give the glass tubes a specular streak so they read as round 3D tubes.
+fn spawn_lights(mut commands: Commands) {
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(0.75, 0.85, 1.0),
+            illuminance: 4500.0,
+            ..default()
+        },
+        Transform::from_xyz(1.0, 1.2, 0.6).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(1.0, 0.8, 0.6),
+            illuminance: 2000.0,
+            ..default()
+        },
+        Transform::from_xyz(-1.0, -0.5, -0.8).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
 }
 
 fn setup_hud(mut commands: Commands) {
