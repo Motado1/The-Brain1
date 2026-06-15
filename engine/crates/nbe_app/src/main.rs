@@ -6,8 +6,10 @@
 //!     revenue (summed from connected ledger entries) and renewal dates surface in the sidebar.
 //!   * **Research** — the knowledge base, off in the distance, growing its own web as notes link
 //!     to topic hubs.
-//! Nodes are glowing neurons; edges are hollow, translucent glass tubes with travelling sparks.
-//! Camera: left-drag orbits, right/middle-drag pans, scroll flies forward/back, Esc unfocuses.
+//!
+//! Nodes are glowing neurons that fire and flare from their activation; firing propagates pulses
+//! of light along the glass-tube edges to neighbours, a real cascade. Ambient twinkle + drifting
+//! dust keep it alive. Camera: left-drag orbits, right/middle-drag pans, scroll flies, Esc unfocuses.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -192,6 +194,23 @@ impl Kind {
 
 const EDGE_WEIGHT_MIN: f64 = 0.55;
 
+// ---- "alive" layer tuning (iterate on these from a screenshot) -------------------------
+/// How fast activation charges a neuron toward its threshold (higher = fires more often).
+const FIRE_RATE: f32 = 0.4;
+/// Flare brightness decay rate (higher = snappier flash).
+const FIRE_DECAY: f32 = 3.0;
+/// Peak emissive multiplier at full flare.
+const FLARE_GAIN: f32 = 5.0;
+/// How much a fired neuron's halo swells at peak.
+const HALO_SWELL: f32 = 0.8;
+/// Energy a propagation pulse deposits in its target (threshold ~0.5, so it takes coincidence to
+/// re-fire — cascades stay sparse and fade).
+const PULSE_ENERGY: f32 = 0.22;
+/// Max pulses one fire emits (caps hub blow-ups).
+const MAX_PULSES_PER_FIRE: usize = 5;
+/// Per-network dust mote count.
+const MOTES_PER_NETWORK: usize = 70;
+
 // ---- navigation registry + camera target ----------------------------------------------
 
 struct NodeInfo {
@@ -292,6 +311,7 @@ fn main() {
         .insert_resource(DbPath(db_path_from_args()))
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())
+        .insert_resource(BrainGraph::default())
         .insert_resource(BusinessPanel::default())
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())
@@ -308,7 +328,10 @@ fn main() {
                 face_camera,
                 update_hud,
                 animate_breath,
-                animate_sparks,
+                fire_scheduler,
+                fire_render,
+                advance_pulses,
+                drift_motes,
                 apply_reload,
             ),
         )
@@ -347,16 +370,72 @@ struct Breath {
     speed: f32,
 }
 
+/// Travelling pulse of light along an edge — spawned when a neuron fires and propagates to its
+/// neighbour. Replaces the old random-looping spark.
 #[derive(Component)]
-struct Spark {
-    path: usize,
+struct Pulse {
+    edge: usize,
     t: f32,
     speed: f32,
-    rng: u64,
+    target: usize,
+    energy: f32,
 }
 
+/// A drifting dust mote, for ambient depth (the bokeh specks in the references).
+#[derive(Component)]
+struct Mote {
+    vel: Vec3,
+    center: Vec3,
+    radius: f32,
+}
+
+/// Links a spawned neuron entity back to its slot in the `BrainGraph`.
+#[derive(Component)]
+struct Neuron(usize);
+
+/// Integrate-and-fire state for a neuron.
+#[derive(Component)]
+struct Firing {
+    accumulator: f32,
+    intensity: f32,
+}
+
+/// Cached base look + the handles a firing flare needs to drive.
+#[derive(Component)]
+struct NodeViz {
+    base_emissive: LinearRgba,
+    base_radius: f32,
+    halo: Entity,
+    mat: Handle<StandardMaterial>,
+    phase: f32,
+    twinkle: f32,
+}
+
+/// The addressable graph the animation systems read: who connects to whom, along which path.
 #[derive(Resource, Default)]
-struct EdgePaths(Vec<Vec<Vec3>>);
+struct BrainGraph {
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
+struct GraphNode {
+    entity: Entity,
+    activation: f32,
+    threshold: f32,
+    out: Vec<usize>, // edge indices leaving this node
+}
+
+struct GraphEdge {
+    path: Vec<Vec3>,
+    target: usize,
+}
+
+/// Shared mesh/material for spawning propagation pulses at runtime.
+#[derive(Resource)]
+struct PulseAssets {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+}
 
 /// Tags every entity the scene builder spawns (nodes, edges, sparks) so a rebuild can despawn the
 /// whole graph and re-create it from the DB — the camera/HUD (untagged) persist.
@@ -659,6 +738,19 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
 
 // ---- scene build -----------------------------------------------------------------------
 
+/// Recompute and persist every neuron's activation from its facets (idempotent). Best-effort —
+/// a missing/locked DB just leaves the stored values in place.
+fn recompute_activations(path: &str) {
+    match nbe_data::Db::open(path, None) {
+        Ok(mut db) => {
+            if let Err(e) = nbe_cli::ops::recompute_activation(&mut db, now_unix()) {
+                warn!("recompute activation failed: {e}");
+            }
+        }
+        Err(e) => warn!("recompute: cannot open '{path}': {e}"),
+    }
+}
+
 fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -681,6 +773,7 @@ fn load_graph(
 
 /// Rebuild the graph from the DB when a button has changed it: despawn the old scene and re-create
 /// it. The camera persists (untagged), so the view stays put while new neurons pop in.
+#[allow(clippy::too_many_arguments)]
 fn apply_reload(
     mut control: ResMut<SceneControl>,
     mut commands: Commands,
@@ -720,6 +813,9 @@ fn build_scene(
     path: &str,
 ) -> Option<(Vec3, f32)> {
     registry.nodes.clear();
+    // Make activation honest before we read it: recompute each neuron's value from its real facet
+    // urgency (recency, invoice status, renewal proximity) so firing rate reflects what matters.
+    recompute_activations(path);
     let db = match nbe_data::Db::open(path, None) {
         Ok(d) => d,
         Err(e) => {
@@ -854,42 +950,83 @@ fn build_scene(
         ..default()
     });
 
+    // Per-entity firing threshold (defaults 0.5).
+    let threshold_of: HashMap<&str, f32> = snap
+        .activations
+        .iter()
+        .map(|a| (a.entity_id.as_str(), a.threshold as f32))
+        .collect();
+
+    let mut graph = BrainGraph::default();
+    let mut index: HashMap<String, usize> = HashMap::new();
+
     for (&network, ids) in &groups {
         for id in ids {
             let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
-            let a = *activation.get(id).unwrap_or(&0.0) as f32;
-            let r = kind.base_size() + a * 0.45;
+            let act = *activation.get(id).unwrap_or(&0.0) as f32;
+            let thr = threshold_of.get(id.as_str()).copied().unwrap_or(0.5);
+            let r = kind.base_size() + act * 0.45;
             let p = pos[id];
+            let base_emissive = node_emissive(kind, act);
             let mat = materials.add(StandardMaterial {
                 base_color: Color::srgb(0.08, 0.03, 0.01),
-                emissive: node_emissive(kind, a),
+                emissive: base_emissive,
                 perceptual_roughness: 0.4,
                 ..default()
             });
-            commands.spawn((
-                Mesh3d(sphere.clone()),
-                MeshMaterial3d(mat),
-                Transform::from_translation(p).with_scale(Vec3::splat(r)),
-                Breath {
-                    base: r,
-                    phase: rand_unit(id, 9) * std::f32::consts::TAU,
-                    speed: 0.6 + rand01(id, 10) * 0.8,
-                },
-                SceneItem,
-            ));
-            // Soft glow halo (camera-facing).
-            let halo = halo_mats
+            // Soft glow halo (camera-facing) — spawned first so the neuron can flare it.
+            let halo_mat = halo_mats
                 .iter()
                 .find(|(k, _)| *k == kind)
                 .map(|(_, h)| h.clone())
                 .unwrap();
-            commands.spawn((
-                Mesh3d(halo_quad.clone()),
-                MeshMaterial3d(halo),
-                Transform::from_translation(p).with_scale(Vec3::splat(r * 5.5)),
-                Billboard,
-                SceneItem,
-            ));
+            let halo = commands
+                .spawn((
+                    Mesh3d(halo_quad.clone()),
+                    MeshMaterial3d(halo_mat),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 5.5)),
+                    Billboard,
+                    SceneItem,
+                ))
+                .id();
+
+            let idx = graph.nodes.len();
+            let node = commands
+                .spawn((
+                    Mesh3d(sphere.clone()),
+                    MeshMaterial3d(mat.clone()),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r)),
+                    Breath {
+                        base: r,
+                        phase: rand_unit(id, 9) * std::f32::consts::TAU,
+                        speed: 0.6 + rand01(id, 10) * 0.8,
+                    },
+                    Neuron(idx),
+                    // Random initial charge so neurons don't all fire in lockstep.
+                    Firing {
+                        accumulator: rand01(id, 7) * thr,
+                        intensity: 0.0,
+                    },
+                    NodeViz {
+                        base_emissive,
+                        base_radius: r,
+                        halo,
+                        mat: mat.clone(),
+                        phase: rand_unit(id, 8) * std::f32::consts::TAU,
+                        twinkle: 0.08 + rand01(id, 15) * 0.08,
+                    },
+                    SceneItem,
+                ))
+                .id();
+
+            graph.nodes.push(GraphNode {
+                entity: node,
+                activation: act,
+                threshold: thr,
+                out: Vec::new(),
+            });
+            index.insert(id.clone(), idx);
+
             // Radiating dendrites — clients sprout the most, ledger entries none (keeps it clean).
             let dcount = match kind {
                 Kind::Client => 5,
@@ -919,10 +1056,10 @@ fn build_scene(
         }
     }
 
-    // Edges: tapered glass tubes (stronger ones only), reused by the sparks. Only ever drawn
-    // between two nodes in the *same* network — no lines stretch across the void.
-    // Clear amber glass: low roughness gives a sharp specular streak under the lights (the
-    // round-tube cue), a faint warm tint + low alpha let you see through, emissive keeps a glow.
+    // Edges: tapered glass tubes (stronger ones only). Only ever drawn between two nodes in the
+    // *same* network — no lines stretch across the void. Clear amber glass: low roughness gives a
+    // sharp specular streak under the lights (the round-tube cue), a faint warm tint + low alpha
+    // let you see through, emissive keeps a glow.
     let edge_mat = materials.add(StandardMaterial {
         base_color: Color::srgba(1.0, 0.62, 0.28, 0.18),
         emissive: LinearRgba::rgb(0.8, 0.32, 0.08),
@@ -940,26 +1077,40 @@ fn build_scene(
         jitter: 0.015,
         seed: 0x00E6,
     };
-    let spawn_tube = |commands: &mut Commands,
-                          meshes: &mut Assets<Mesh>,
-                          edge_paths: &mut Vec<Vec<Vec3>>,
-                          curve: Vec<Vec3>| {
+    let add_tube = |commands: &mut Commands, meshes: &mut Assets<Mesh>, curve: &[Vec3]| {
         let radii = connection_radii(curve.len(), 0.32);
         commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(&curve, &radii, 8))),
+            Mesh3d(meshes.add(tube_mesh(curve, &radii, 8))),
             MeshMaterial3d(edge_mat.clone()),
             Transform::default(),
             SceneItem,
         ));
-        edge_paths.push(curve);
     };
+    // Wire a path into the graph as directed src→dst (and the reverse if undirected) for propagation.
+    fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], directed: bool) {
+        let e1 = graph.edges.len();
+        graph.edges.push(GraphEdge {
+            path: curve.to_vec(),
+            target: di,
+        });
+        graph.nodes[si].out.push(e1);
+        if !directed {
+            let mut rev = curve.to_vec();
+            rev.reverse();
+            let e2 = graph.edges.len();
+            graph.edges.push(GraphEdge { path: rev, target: si });
+            graph.nodes[di].out.push(e2);
+        }
+    }
 
-    let mut edge_paths: Vec<Vec<Vec3>> = Vec::new();
     for e in &snap.edges {
         if e.weight < EDGE_WEIGHT_MIN {
             continue;
         }
         let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
+            continue;
+        };
+        let (Some(&si), Some(&di)) = (index.get(&e.source_id), index.get(&e.target_id)) else {
             continue;
         };
         let net_a = kind_of.get(&e.source_id).map(|k| k.network());
@@ -968,13 +1119,15 @@ fn build_scene(
             continue;
         }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
-        spawn_tube(commands, meshes, &mut edge_paths, curve);
+        add_tube(commands, meshes, &curve);
+        wire(&mut graph, si, di, &curve, e.directed);
     }
 
     // The Research network's native links all point across to clients/ledger (dropped above), so
     // it arrives as loose dust. Weave a proximity web — each note to its 2 nearest neighbours — so
     // it reads as its own constellation. (Real Add-Research notes link to topic hubs over time.)
     if let Some(rids) = groups.get(&Network::Research) {
+        let ridx: Vec<usize> = rids.iter().map(|id| index[id]).collect();
         let rpos: Vec<Vec3> = rids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
         for i in 0..rpos.len() {
@@ -990,41 +1143,66 @@ fn build_scene(
                 }
                 let seed = (key.0 as u64) << 20 ^ key.1 as u64;
                 let curve = edge_curve(rpos[i], rpos[j], 0.7, &curve_params, seed);
-                spawn_tube(commands, meshes, &mut edge_paths, curve);
+                add_tube(commands, meshes, &curve);
+                wire(&mut graph, ridx[i], ridx[j], &curve, false);
             }
         }
     }
 
-    // Travelling light: a slow, soft pulse of light coursing down each pathway (not a hard dot).
-    // Spawned as an elongated emissive glow stretched along the tube; bloom turns it into a streak.
-    if !edge_paths.is_empty() {
-        let pulse_mat = materials.add(StandardMaterial {
-            base_color: Color::BLACK,
-            emissive: LinearRgba::rgb(9.0, 5.0, 1.6),
-            alpha_mode: AlphaMode::Add,
-            ..default()
-        });
-        let pulse_count = (edge_paths.len() / 2).clamp(16, 220);
-        let mut s = 0x9E37_79B9u64;
-        for k in 0..pulse_count {
-            let path = (lcg(&mut s) * edge_paths.len() as f32) as usize % edge_paths.len();
-            let t = lcg(&mut s);
-            let speed = 0.05 + lcg(&mut s) * 0.1; // slowish
+    // Pulse asset shared by all propagation pulses (spawned at runtime when neurons fire).
+    let pulse_material = materials.add(StandardMaterial {
+        base_color: Color::BLACK,
+        emissive: LinearRgba::rgb(9.0, 5.0, 1.6),
+        alpha_mode: AlphaMode::Add,
+        ..default()
+    });
+    commands.insert_resource(PulseAssets {
+        mesh: sphere.clone(),
+        material: pulse_material,
+    });
+
+    // Ambient dust motes drifting in each network's volume (the bokeh specks).
+    let mote_mat = materials.add(StandardMaterial {
+        base_color: Color::LinearRgba(LinearRgba::new(0.6, 0.34, 0.16, 1.0)),
+        base_color_texture: Some(glow.clone()),
+        unlit: true,
+        alpha_mode: AlphaMode::Add,
+        cull_mode: None,
+        ..default()
+    });
+    let mut ms = 0xD1B5_4A32u64;
+    for network in Network::ALL {
+        let center = network.center();
+        let radius = network.radii().max_element() * 1.3;
+        for _ in 0..MOTES_PER_NETWORK {
+            let dir = Vec3::new(
+                lcg(&mut ms) - 0.5,
+                lcg(&mut ms) - 0.5,
+                lcg(&mut ms) - 0.5,
+            );
+            let p = center + dir * radius;
+            let vel = Vec3::new(
+                lcg(&mut ms) - 0.5,
+                lcg(&mut ms) - 0.5,
+                lcg(&mut ms) - 0.5,
+            ) * 2.0;
+            let sz = 0.6 + lcg(&mut ms) * 1.2;
             commands.spawn((
-                Mesh3d(sphere.clone()),
-                MeshMaterial3d(pulse_mat.clone()),
-                Transform::from_translation(sample_path(&edge_paths[path], t)),
-                Spark {
-                    path,
-                    t,
-                    speed,
-                    rng: s ^ (k as u64 + 1),
+                Mesh3d(halo_quad.clone()),
+                MeshMaterial3d(mote_mat.clone()),
+                Transform::from_translation(p).with_scale(Vec3::splat(sz)),
+                Billboard,
+                Mote {
+                    vel,
+                    center,
+                    radius,
                 },
                 SceneItem,
             ));
         }
     }
-    commands.insert_resource(EdgePaths(edge_paths));
+
+    commands.insert_resource(graph);
 
     let all: Vec<Vec3> = pos.values().copied().collect();
     let (center, radius) = bounds(&all);
@@ -1202,6 +1380,7 @@ fn sync_ui_pointer(mut contexts: EguiContexts, mut ui: ResMut<UiPointer>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn orbit_camera(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -1292,35 +1471,123 @@ fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) 
     }
 }
 
-fn animate_sparks(
+/// Integrate-and-fire: each neuron charges from its activation; when it crosses threshold it
+/// flares and emits a pulse of light down each outgoing edge (a synapse firing).
+fn fire_scheduler(
     time: Res<Time>,
-    paths: Res<EdgePaths>,
-    mut query: Query<(&mut Spark, &mut Transform)>,
+    graph: Res<BrainGraph>,
+    pulse: Option<Res<PulseAssets>>,
+    mut commands: Commands,
+    mut q: Query<(&Neuron, &mut Firing)>,
 ) {
-    if paths.0.is_empty() {
-        return;
-    }
     let dt = time.delta_secs();
-    for (mut spark, mut transform) in &mut query {
-        spark.t += spark.speed * dt;
-        if spark.t >= 1.0 {
-            spark.t -= 1.0;
-            spark.path = (lcg(&mut spark.rng) * paths.0.len() as f32) as usize % paths.0.len();
-            spark.speed = 0.05 + lcg(&mut spark.rng) * 0.1;
+    for (neuron, mut firing) in &mut q {
+        let Some(node) = graph.nodes.get(neuron.0) else {
+            continue;
+        };
+        firing.intensity *= (-dt * FIRE_DECAY).exp();
+        // floor keeps even quiet neurons occasionally firing → baseline life.
+        firing.accumulator += node.activation.max(0.05) * dt * FIRE_RATE;
+        if firing.accumulator >= node.threshold {
+            firing.accumulator = 0.0;
+            firing.intensity = 1.0;
+            if let Some(pulse) = &pulse {
+                let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
+                for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
+                    let edge = &graph.edges[e];
+                    let speed = 0.4 + lcg(&mut seed) * 0.4;
+                    commands.spawn((
+                        Mesh3d(pulse.mesh.clone()),
+                        MeshMaterial3d(pulse.material.clone()),
+                        Transform::from_translation(edge.path[0]),
+                        Pulse {
+                            edge: e,
+                            t: 0.0,
+                            speed,
+                            target: edge.target,
+                            energy: PULSE_ENERGY,
+                        },
+                        SceneItem,
+                    ));
+                }
+            }
         }
-        let path = &paths.0[spark.path];
-        let t = spark.t;
-        let a = sample_path(path, (t - 0.015).max(0.0));
-        let b = sample_path(path, (t + 0.015).min(1.0));
-        transform.translation = sample_path(path, t);
+    }
+}
+
+/// Render firing: flare the neuron's emissive + swell its halo, plus a constant gentle twinkle.
+fn fire_render(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    q: Query<(&Firing, &NodeViz)>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let t = time.elapsed_secs();
+    for (firing, viz) in &q {
+        let twinkle = 1.0 + (t * 1.7 + viz.phase).sin() * viz.twinkle;
+        let mul = twinkle + firing.intensity * FLARE_GAIN;
+        if let Some(m) = materials.get_mut(&viz.mat) {
+            m.emissive = LinearRgba::rgb(
+                viz.base_emissive.red * mul,
+                viz.base_emissive.green * mul,
+                viz.base_emissive.blue * mul,
+            );
+        }
+        if let Ok(mut tr) = transforms.get_mut(viz.halo) {
+            tr.scale = Vec3::splat(viz.base_radius * 5.5 * (1.0 + firing.intensity * HALO_SWELL));
+        }
+    }
+}
+
+/// Move propagation pulses along their edge; on arrival, deposit energy into the target neuron
+/// (which may tip it over threshold → it fires → the cascade continues), then despawn.
+fn advance_pulses(
+    time: Res<Time>,
+    graph: Res<BrainGraph>,
+    mut commands: Commands,
+    mut pulses: Query<(Entity, &mut Pulse, &mut Transform)>,
+    mut fire: Query<&mut Firing>,
+) {
+    let dt = time.delta_secs();
+    for (ent, mut pulse, mut tr) in &mut pulses {
+        let Some(edge) = graph.edges.get(pulse.edge) else {
+            commands.entity(ent).despawn();
+            continue;
+        };
+        pulse.t += pulse.speed * dt;
+        let tt = pulse.t.min(1.0);
+        let path = &edge.path;
+        let a = sample_path(path, (tt - 0.02).max(0.0));
+        let b = sample_path(path, (tt + 0.02).min(1.0));
+        tr.translation = sample_path(path, tt);
         let dir = (b - a).normalize_or_zero();
         if dir.length_squared() > 1e-6 {
-            transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
+            tr.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
         }
-        // Fade in/out toward the node ends so the pulse swells mid-pathway, like a light surge.
-        let env = (t * std::f32::consts::PI).sin().max(0.0);
+        let env = (tt * std::f32::consts::PI).sin().max(0.0);
         let glow = 0.2 + 0.8 * env;
-        transform.scale = Vec3::new(0.45 * glow, 0.45 * glow, 3.0 * glow);
+        tr.scale = Vec3::new(0.5 * glow, 0.5 * glow, 3.2 * glow);
+        if pulse.t >= 1.0 {
+            if let Some(node) = graph.nodes.get(pulse.target) {
+                if let Ok(mut f) = fire.get_mut(node.entity) {
+                    f.accumulator += pulse.energy;
+                }
+            }
+            commands.entity(ent).despawn();
+        }
+    }
+}
+
+/// Drift the ambient dust motes slowly, steering them back when they leave their network volume.
+fn drift_motes(time: Res<Time>, mut q: Query<(&mut Mote, &mut Transform)>) {
+    let dt = time.delta_secs();
+    for (mut mote, mut tr) in &mut q {
+        tr.translation += mote.vel * dt;
+        let off = tr.translation - mote.center;
+        if off.length() > mote.radius {
+            let speed = mote.vel.length().max(0.5);
+            mote.vel = -off.normalize_or_zero() * speed;
+        }
     }
 }
 
