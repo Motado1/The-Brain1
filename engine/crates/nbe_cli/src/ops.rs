@@ -1689,6 +1689,22 @@ pub fn nudges(
     Ok(out.trim_end().to_string())
 }
 
+/// Morning briefing: the three things that matter *today*, composed into one glance — today's
+/// sessions (with logged marks), renewals coming due this week, and packages about to run out.
+/// Reuses the already-tested `agenda` / `report_renewals` / `nudges` logic with daily defaults.
+pub fn today(db: &nbe_data::Db, now: i64) -> Result<String> {
+    let midnight = now.div_euclid(86_400) * 86_400;
+    let wd = crate::datetime::weekday_from_epoch(midnight);
+    let mut out = format!("Today — {} {}\n\n", weekday_name(wd), format_date(midnight));
+    out.push_str("▸ ");
+    out.push_str(&agenda(db, 1, now)?);
+    out.push_str("\n\n▸ ");
+    out.push_str(&report_renewals(db, 7, now)?);
+    out.push_str("\n\n▸ ");
+    out.push_str(&nudges(db, 2, 2.0, now)?);
+    Ok(out)
+}
+
 // ---- calendar sync ---------------------------------------------------------------------
 
 pub fn calendar_set_url(db: &nbe_data::Db, url: &str) -> Result<String> {

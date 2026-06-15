@@ -557,6 +557,27 @@ fn nudges_flag_clients_running_low() {
 }
 
 #[test]
+fn today_briefing_composes_sections() {
+    let mut db = Db::open_in_memory().unwrap();
+    let monday = parse_date("2026-06-15").unwrap(); // a Monday
+    ops::client_add(&mut db, "Acme", "active", None, None, monday).unwrap();
+    let cid = client_id(&db);
+    ops::slot_add(&mut db, &cid[..8], "Mon", "09:00", 60, 1.0, monday).unwrap();
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, monday).unwrap();
+    // burn the package down to 1 remaining so it shows up as a nudge.
+    for _ in 0..9 {
+        ops::session_log(&mut db, &cid[..8], None, "completed", None, monday).unwrap();
+    }
+
+    let r = ops::today(&db, monday).unwrap();
+    assert!(r.contains("Today — Mon 2026-06-15"), "dated header: {r}");
+    assert_eq!(r.matches('▸').count(), 3, "all three sections present: {r}");
+    assert!(r.contains("Acme"), "today's session is listed: {r}");
+    assert!(r.contains("7 days"), "renewals window section present: {r}");
+    assert!(r.contains("re-sell"), "near-empty package flagged as a nudge: {r}");
+}
+
+#[test]
 fn note_import_front_matter_creates_note_and_topics() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("creatine.md");

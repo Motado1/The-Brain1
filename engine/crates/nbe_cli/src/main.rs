@@ -266,6 +266,8 @@ enum Command {
         #[arg(long, default_value_t = 2.0)]
         within_weeks: f64,
     },
+    /// Morning briefing: today's sessions + renewals due this week + packages running low.
+    Today,
     /// Save the Google Calendar private ICS URL.
     CalendarSetUrl { url: String },
     /// Pull the calendar and log matching sessions (offline-by-default; runs only on demand).
@@ -460,6 +462,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             within_sessions,
             within_weeks,
         } => ops::nudges(&db, within_sessions, within_weeks, now),
+        Command::Today => ops::today(&db, now),
         Command::CalendarSetUrl { url } => ops::calendar_set_url(&db, &url),
         Command::CalendarSync { file } => ops::calendar_sync(&mut db, file.as_deref(), now),
 
