@@ -15,10 +15,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::image::Image;
+use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::render::settings::{Backends, PowerPreference, RenderCreation, WgpuSettings};
 use bevy::render::view::Hdr;
 use bevy::render::RenderPlugin;
@@ -158,12 +162,12 @@ impl Kind {
         }
     }
 
-    /// Base emissive hue (pre activation/intensity).
+    /// Base emissive hue (pre activation/intensity) — warm amber / honey / red family.
     fn base_color(self) -> (f32, f32, f32) {
         match self {
-            Kind::Client => (0.12, 0.6, 1.0),     // cyan
-            Kind::Ledger => (1.0, 0.6, 0.12),     // amber
-            Kind::Knowledge => (0.2, 1.0, 0.45),  // green
+            Kind::Client => (1.0, 0.55, 0.13),    // honey amber
+            Kind::Ledger => (1.0, 0.22, 0.08),    // deep red
+            Kind::Knowledge => (1.0, 0.78, 0.32), // warm gold
         }
     }
 
@@ -284,7 +288,7 @@ fn main() {
         )
         .add_plugins(EguiPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(ClearColor(Color::srgb(0.008, 0.015, 0.04)))
+        .insert_resource(ClearColor(Color::srgb(0.022, 0.012, 0.008)))
         .insert_resource(DbPath(db_path_from_args()))
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())
@@ -300,6 +304,8 @@ fn main() {
             Update,
             (
                 orbit_camera,
+                update_dof,
+                face_camera,
                 update_hud,
                 animate_breath,
                 animate_sparks,
@@ -329,6 +335,10 @@ impl OrbitCamera {
 
 #[derive(Component)]
 struct HudText;
+
+/// A camera-facing quad — the soft glow halo behind a neuron.
+#[derive(Component)]
+struct Billboard;
 
 #[derive(Component)]
 struct Breath {
@@ -423,7 +433,7 @@ fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
 /// Emissive (HDR) for a node: kind hue at rest, shifting to a warm amber hotspot as it activates.
 fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
     let (br, bg, bb) = kind.base_color();
-    let (hr, hg, hb) = (1.0, 0.72, 0.32); // warm amber-white hot
+    let (hr, hg, hb) = (1.0, 0.92, 0.7); // white-hot honey core
     let t = activation.clamp(0.0, 1.0);
     let mix = |b: f32, h: f32| b + (h - b) * t * 0.9;
     let intensity = 0.9 + activation * 7.0;
@@ -449,60 +459,157 @@ fn bounds(points: &[Vec3]) -> (Vec3, f32) {
     (center, radius)
 }
 
-/// A translucent tube swept along `points` — the "clear glass filament" look from the references.
-/// Builds a ring of `sides` vertices per path point and stitches consecutive rings into a sleeve.
-fn tube_mesh(points: &[Vec3], radius: f32, sides: usize) -> Mesh {
-    let usages = RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD;
-    if points.len() < 2 {
-        return Mesh::new(PrimitiveTopology::TriangleList, usages);
-    }
-    let rings = points.len();
-    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(rings * sides);
-    let mut normals: Vec<[f32; 3]> = Vec::with_capacity(rings * sides);
-    let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(rings * sides);
-    let mut indices: Vec<u32> = Vec::with_capacity((rings - 1) * sides * 6);
+/// Accumulating mesh buffers so many tube strips can share one mesh (one draw call per neuron's
+/// whole dendrite tree, say).
+#[derive(Default)]
+struct TubeBuilder {
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+}
 
-    for (ri, &p) in points.iter().enumerate() {
-        let tangent = if ri == 0 {
-            points[1] - points[0]
-        } else if ri == rings - 1 {
-            points[ri] - points[ri - 1]
-        } else {
-            points[ri + 1] - points[ri - 1]
+impl TubeBuilder {
+    /// Sweep a tube along `points` with a per-point `radii` profile (lets tubes taper / bulge).
+    fn add(&mut self, points: &[Vec3], radii: &[f32], sides: usize) {
+        if points.len() < 2 {
+            return;
         }
-        .normalize_or_zero();
-        let t = if tangent.length_squared() < 1e-6 {
-            Vec3::Z
-        } else {
-            tangent
-        };
-        // A pair of axes perpendicular to the tangent to spin the ring around.
-        let up = if t.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
-        let n0 = t.cross(up).normalize();
-        let b0 = t.cross(n0).normalize();
-        for s in 0..sides {
-            let a = s as f32 / sides as f32 * std::f32::consts::TAU;
-            let dir = n0 * a.cos() + b0 * a.sin();
-            positions.push((p + dir * radius).to_array());
-            normals.push(dir.to_array());
-            uvs.push([ri as f32 / (rings - 1) as f32, s as f32 / sides as f32]);
+        let rings = points.len();
+        let base = self.positions.len() as u32;
+        for (ri, &p) in points.iter().enumerate() {
+            let tangent = if ri == 0 {
+                points[1] - points[0]
+            } else if ri == rings - 1 {
+                points[ri] - points[ri - 1]
+            } else {
+                points[ri + 1] - points[ri - 1]
+            }
+            .normalize_or_zero();
+            let t = if tangent.length_squared() < 1e-6 {
+                Vec3::Z
+            } else {
+                tangent
+            };
+            let up = if t.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+            let n0 = t.cross(up).normalize();
+            let b0 = t.cross(n0).normalize();
+            let r = radii[ri.min(radii.len() - 1)];
+            for s in 0..sides {
+                let a = s as f32 / sides as f32 * std::f32::consts::TAU;
+                let dir = n0 * a.cos() + b0 * a.sin();
+                self.positions.push((p + dir * r).to_array());
+                self.normals.push(dir.to_array());
+                self.uvs
+                    .push([ri as f32 / (rings - 1) as f32, s as f32 / sides as f32]);
+            }
+        }
+        for ri in 0..rings - 1 {
+            for s in 0..sides {
+                let s2 = (s + 1) % sides;
+                let a = base + (ri * sides + s) as u32;
+                let b = base + (ri * sides + s2) as u32;
+                let c = base + ((ri + 1) * sides + s) as u32;
+                let d = base + ((ri + 1) * sides + s2) as u32;
+                self.indices.extend_from_slice(&[a, c, b, b, c, d]);
+            }
         }
     }
-    for ri in 0..rings - 1 {
-        for s in 0..sides {
-            let s2 = (s + 1) % sides;
-            let a = (ri * sides + s) as u32;
-            let b = (ri * sides + s2) as u32;
-            let c = ((ri + 1) * sides + s) as u32;
-            let d = ((ri + 1) * sides + s2) as u32;
-            indices.extend_from_slice(&[a, c, b, b, c, d]);
+
+    fn build(self) -> Mesh {
+        let usages = RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD;
+        Mesh::new(PrimitiveTopology::TriangleList, usages)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs)
+            .with_inserted_indices(Indices::U32(self.indices))
+    }
+}
+
+/// Single tapered tube as its own mesh.
+fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
+    let mut b = TubeBuilder::default();
+    b.add(points, radii, sides);
+    b.build()
+}
+
+/// Connection profile: fat at both endpoints (where it meets the somas), pinched in the middle —
+/// the organic dendrite-junction look rather than an even pipe.
+fn connection_radii(n: usize, base: f32) -> Vec<f32> {
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / (n - 1).max(1) as f32;
+            base * (0.4 + 0.6 * (2.0 * t - 1.0).abs())
+        })
+        .collect()
+}
+
+/// Dendrite profile: thick at the root, tapering smoothly to a hair-thin tip.
+fn dendrite_radii(n: usize, base: f32) -> Vec<f32> {
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / (n - 1).max(1) as f32;
+            base * (1.0 - t).powf(1.5) + 0.012
+        })
+        .collect()
+}
+
+/// Grow a small tree of wandering, tapering filaments out of a neuron — the dendrites that make it
+/// read as a living cell instead of a dot. Returns one merged mesh.
+fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) -> Mesh {
+    let mut s = seed | 1;
+    let mut builder = TubeBuilder::default();
+    for _ in 0..count {
+        let segs = 5 + (lcg(&mut s) * 3.0) as usize;
+        let seg_len = node_r * (1.4 + lcg(&mut s) * 1.2);
+        let mut dir =
+            Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5).normalize_or_zero();
+        if dir.length_squared() < 1e-6 {
+            dir = Vec3::Y;
+        }
+        let mut p = node;
+        let mut pts = vec![p];
+        for _ in 0..segs {
+            let jitter =
+                Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5) * 0.55;
+            dir = (dir + jitter).normalize_or_zero();
+            p += dir * seg_len;
+            pts.push(p);
+        }
+        let radii = dendrite_radii(pts.len(), node_r * 0.28);
+        builder.add(&pts, &radii, 5);
+    }
+    builder.build()
+}
+
+/// A soft round radial-gradient texture (white core fading to transparent) for the glow halos.
+fn glow_texture() -> Image {
+    const N: usize = 64;
+    let mut data = vec![0u8; N * N * 4];
+    let c = (N as f32 - 1.0) * 0.5;
+    for y in 0..N {
+        for x in 0..N {
+            let d = (((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt()) / c;
+            // Smooth falloff, squared for a tighter hot core.
+            let a = (1.0 - d).clamp(0.0, 1.0).powf(2.2);
+            let i = (y * N + x) * 4;
+            data[i] = 255;
+            data[i + 1] = 255;
+            data[i + 2] = 255;
+            data[i + 3] = (a * 255.0) as u8;
         }
     }
-    Mesh::new(PrimitiveTopology::TriangleList, usages)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-        .with_inserted_indices(Indices::U32(indices))
+    Image::new(
+        Extent3d {
+            width: N as u32,
+            height: N as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    )
 }
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
@@ -522,10 +629,26 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
         }),
         Hdr,
         Tonemapping::TonyMcMapface,
-        Bloom::NATURAL,
-        // A touch of cool ambient so the glass tubes aren't pure black where unlit.
+        Bloom {
+            intensity: 0.3,
+            ..Bloom::NATURAL
+        },
+        // Warm dark haze so distant neurons melt into amber depth rather than a hard cutoff.
+        DistanceFog {
+            color: Color::srgb(0.05, 0.022, 0.012),
+            falloff: FogFalloff::ExponentialSquared { density: 0.00055 },
+            ..default()
+        },
+        // Gentle depth-of-field: the focused cluster stays crisp, far/near soften like the refs.
+        DepthOfField {
+            mode: DepthOfFieldMode::Gaussian,
+            focal_distance: cam.radius,
+            aperture_f_stops: 2.8,
+            ..default()
+        },
+        // A touch of warm ambient so the glass tubes aren't pure black where unlit.
         AmbientLight {
-            color: Color::srgb(0.5, 0.65, 1.0),
+            color: Color::srgb(1.0, 0.7, 0.45),
             brightness: 60.0,
             ..default()
         },
@@ -540,6 +663,7 @@ fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
 ) {
@@ -547,6 +671,7 @@ fn load_graph(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        images.as_mut(),
         registry.as_mut(),
         &db_path.0,
     )
@@ -561,6 +686,7 @@ fn apply_reload(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
     old: Query<Entity, With<SceneItem>>,
@@ -576,6 +702,7 @@ fn apply_reload(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        images.as_mut(),
         registry.as_mut(),
         &db_path.0,
     );
@@ -588,6 +715,7 @@ fn build_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
     path: &str,
 ) -> Option<(Vec3, f32)> {
@@ -696,6 +824,36 @@ fn build_scene(
 
     // Spawn nodes + build the navigation registry.
     let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
+    let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
+    let glow = images.add(glow_texture());
+    let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
+        let (r, g, b) = kind.base_color();
+        materials.add(StandardMaterial {
+            // base_color > 1 → HDR halo that blooms; multiplied by the radial-gradient texture.
+            base_color: Color::LinearRgba(LinearRgba::new(r * 2.6, g * 2.6, b * 2.6, 1.0)),
+            base_color_texture: Some(glow.clone()),
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            cull_mode: None,
+            ..default()
+        })
+    };
+    let halo_mats = [
+        (Kind::Client, halo_for(Kind::Client, materials)),
+        (Kind::Ledger, halo_for(Kind::Ledger, materials)),
+        (Kind::Knowledge, halo_for(Kind::Knowledge, materials)),
+    ];
+    // Warm translucent glass for the dendrite filaments.
+    let dendrite_mat = materials.add(StandardMaterial {
+        base_color: Color::srgba(1.0, 0.55, 0.22, 0.16),
+        emissive: LinearRgba::rgb(0.5, 0.17, 0.04),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        perceptual_roughness: 0.1,
+        metallic: 0.0,
+        ..default()
+    });
+
     for (&network, ids) in &groups {
         for id in ids {
             let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
@@ -703,7 +861,7 @@ fn build_scene(
             let r = kind.base_size() + a * 0.45;
             let p = pos[id];
             let mat = materials.add(StandardMaterial {
-                base_color: Color::srgb(0.02, 0.06, 0.14),
+                base_color: Color::srgb(0.08, 0.03, 0.01),
                 emissive: node_emissive(kind, a),
                 perceptual_roughness: 0.4,
                 ..default()
@@ -719,6 +877,33 @@ fn build_scene(
                 },
                 SceneItem,
             ));
+            // Soft glow halo (camera-facing).
+            let halo = halo_mats
+                .iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, h)| h.clone())
+                .unwrap();
+            commands.spawn((
+                Mesh3d(halo_quad.clone()),
+                MeshMaterial3d(halo),
+                Transform::from_translation(p).with_scale(Vec3::splat(r * 5.5)),
+                Billboard,
+                SceneItem,
+            ));
+            // Radiating dendrites — clients sprout the most, ledger entries none (keeps it clean).
+            let dcount = match kind {
+                Kind::Client => 5,
+                Kind::Knowledge => 4,
+                Kind::Ledger => 0,
+            };
+            if dcount > 0 {
+                commands.spawn((
+                    Mesh3d(meshes.add(dendrite_mesh(p, dcount, r, hash_u64(id)))),
+                    MeshMaterial3d(dendrite_mat.clone()),
+                    Transform::default(),
+                    SceneItem,
+                ));
+            }
             registry.nodes.push(NodeInfo {
                 name: name_of.get(id).cloned().unwrap_or_else(|| id[..8].to_string()),
                 kind,
@@ -734,13 +919,13 @@ fn build_scene(
         }
     }
 
-    // Edges: hollow glass tubes (stronger ones only), reused by the sparks. Only ever drawn
+    // Edges: tapered glass tubes (stronger ones only), reused by the sparks. Only ever drawn
     // between two nodes in the *same* network — no lines stretch across the void.
-    // Clear glass: low roughness gives a sharp specular streak under the lights (the round-tube
-    // cue), a faint blue tint + low alpha let you see through, and a gentle emissive keeps a glow.
+    // Clear amber glass: low roughness gives a sharp specular streak under the lights (the
+    // round-tube cue), a faint warm tint + low alpha let you see through, emissive keeps a glow.
     let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.55, 0.8, 1.0, 0.18),
-        emissive: LinearRgba::rgb(0.12, 0.4, 0.8),
+        base_color: Color::srgba(1.0, 0.62, 0.28, 0.18),
+        emissive: LinearRgba::rgb(0.8, 0.32, 0.08),
         alpha_mode: AlphaMode::Blend,
         cull_mode: None,
         perceptual_roughness: 0.06,
@@ -759,8 +944,9 @@ fn build_scene(
                           meshes: &mut Assets<Mesh>,
                           edge_paths: &mut Vec<Vec<Vec3>>,
                           curve: Vec<Vec3>| {
+        let radii = connection_radii(curve.len(), 0.32);
         commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(&curve, 0.3, 8))),
+            Mesh3d(meshes.add(tube_mesh(&curve, &radii, 8))),
             MeshMaterial3d(edge_mat.clone()),
             Transform::default(),
             SceneItem,
@@ -814,7 +1000,7 @@ fn build_scene(
     if !edge_paths.is_empty() {
         let pulse_mat = materials.add(StandardMaterial {
             base_color: Color::BLACK,
-            emissive: LinearRgba::rgb(2.5, 4.5, 8.0),
+            emissive: LinearRgba::rgb(9.0, 5.0, 1.6),
             alpha_mode: AlphaMode::Add,
             ..default()
         });
@@ -1138,12 +1324,36 @@ fn animate_sparks(
     }
 }
 
+/// Turn the glow-halo quads to face the camera each frame.
+fn face_camera(
+    cam: Query<&GlobalTransform, With<Camera>>,
+    mut halos: Query<&mut Transform, With<Billboard>>,
+) {
+    let Ok(cam) = cam.single() else {
+        return;
+    };
+    let cam_pos = cam.translation();
+    for mut t in &mut halos {
+        let dir = (cam_pos - t.translation).normalize_or_zero();
+        if dir.length_squared() > 1e-6 {
+            t.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
+        }
+    }
+}
+
+/// Keep depth-of-field focused at the current orbit distance so the looked-at cluster stays crisp.
+fn update_dof(mut query: Query<(&OrbitCamera, &mut DepthOfField)>) {
+    for (orbit, mut dof) in &mut query {
+        dof.focal_distance = orbit.radius;
+    }
+}
+
 /// Two directional lights from opposite sides — they don't brighten the scene much (nodes are
 /// emissive) but give the glass tubes a specular streak so they read as round 3D tubes.
 fn spawn_lights(mut commands: Commands) {
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb(0.75, 0.85, 1.0),
+            color: Color::srgb(1.0, 0.82, 0.55),
             illuminance: 4500.0,
             ..default()
         },
@@ -1151,7 +1361,7 @@ fn spawn_lights(mut commands: Commands) {
     ));
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb(1.0, 0.8, 0.6),
+            color: Color::srgb(1.0, 0.45, 0.25),
             illuminance: 2000.0,
             ..default()
         },
