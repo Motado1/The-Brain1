@@ -340,6 +340,7 @@ fn build_scene(
 
     let mut graph = BrainGraph::default();
     let mut index: HashMap<String, usize> = HashMap::new();
+    let mut radius_of: HashMap<String, f32> = HashMap::new();
 
     for (&network, ids) in &groups {
         for id in ids {
@@ -430,6 +431,7 @@ fn build_scene(
                 out: Vec::new(),
             });
             index.insert(id.clone(), idx);
+            radius_of.insert(id.clone(), r);
 
             // Radiating dendrites — clients and notes sprout identically (ledger folded out).
             let dcount = match kind {
@@ -468,16 +470,18 @@ fn build_scene(
         jitter: 0.015,
         seed: 0x00E6,
     };
-    let add_tube =
-        |commands: &mut Commands, meshes: &mut Assets<Mesh>, mat: Handle<StandardMaterial>, curve: &[Vec3]| {
-            let radii = connection_radii(curve.len(), 0.13);
-            commands.spawn((
-                Mesh3d(meshes.add(tube_mesh(curve, &radii, 8))),
-                MeshMaterial3d(mat),
-                Transform::default(),
-                SceneItem,
-            ));
-        };
+    let add_tube = |commands: &mut Commands,
+                    meshes: &mut Assets<Mesh>,
+                    mat: Handle<StandardMaterial>,
+                    curve: &[Vec3],
+                    radii: &[f32]| {
+        commands.spawn((
+            Mesh3d(meshes.add(tube_mesh(curve, radii, 8))),
+            MeshMaterial3d(mat),
+            Transform::default(),
+            SceneItem,
+        ));
+    };
     // Wire a path into the graph as directed src→dst (and the reverse if undirected) for propagation.
     fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], directed: bool) {
         let e1 = graph.edges.len();
@@ -516,9 +520,20 @@ fn build_scene(
                 if !linked.insert(key) {
                     continue;
                 }
+                // Start/end the axon at each soma's *surface* (not its centre) and flare its ends
+                // to a fraction of the soma radius, so it visibly grows out of the cell body.
+                let ri = radius_of.get(&ids[i]).copied().unwrap_or(1.0);
+                let rj = radius_of.get(&ids[j]).copied().unwrap_or(1.0);
+                let dir = (ps[j] - ps[i]).normalize_or_zero();
+                let (a, b) = if ps[i].distance(ps[j]) > ri + rj + 1.0 {
+                    (ps[i] + dir * ri, ps[j] - dir * rj)
+                } else {
+                    (ps[i], ps[j])
+                };
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
-                let curve = edge_curve(ps[i], ps[j], 0.7, &curve_params, seed);
-                add_tube(commands, meshes, edge_mat.clone(), &curve);
+                let curve = edge_curve(a, b, 0.7, &curve_params, seed);
+                let radii = axon_radii(curve.len(), ri * 0.5, rj * 0.5, 0.1);
+                add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
                 wire(&mut graph, idxs[i], idxs[j], &curve, false);
             }
         }

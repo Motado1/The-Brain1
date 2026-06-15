@@ -180,11 +180,15 @@ pub(crate) fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
 
 /// Connection profile: fat at both endpoints (where it meets the somas), pinched in the middle —
 /// the organic dendrite-junction look rather than an even pipe.
-pub(crate) fn connection_radii(n: usize, base: f32) -> Vec<f32> {
+/// Axon profile: flares thick where it meets each soma (so the connection looks like it grows out
+/// of the cell body), pinching to a thin waist along its length. Ends may differ (each soma's size).
+pub(crate) fn axon_radii(n: usize, r_start: f32, r_end: f32, waist: f32) -> Vec<f32> {
     (0..n)
         .map(|i| {
             let t = i as f32 / (n - 1).max(1) as f32;
-            base * (0.4 + 0.6 * (2.0 * t - 1.0).abs())
+            let end_r = if t < 0.5 { r_start } else { r_end };
+            let k = (2.0 * t - 1.0).abs().powf(1.6); // ~1 at the ends, ~0 mid — flare hugs the soma
+            waist + (end_r - waist) * k
         })
         .collect()
 }
