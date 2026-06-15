@@ -195,8 +195,12 @@ impl Kind {
 const EDGE_WEIGHT_MIN: f64 = 0.55;
 
 // ---- "alive" layer tuning (iterate on these from a screenshot) -------------------------
-/// How fast activation charges a neuron toward its threshold (higher = fires more often).
-const FIRE_RATE: f32 = 0.4;
+/// Baseline charge every neuron gets regardless of need — keeps the whole brain alive and firing
+/// even where nothing is urgent (threshold ~0.5, so ~0.04/s ≈ a fire every ~12s at rest).
+const FIRE_BASE: f32 = 0.04;
+/// Extra charge scaled by a neuron's activation (real need) — urgent neurons fire much more often
+/// (activation ~1.0 → ~0.3/s ≈ a fire every ~1.5s).
+const FIRE_NEED: f32 = 0.28;
 /// Flare brightness decay rate (higher = snappier flash).
 const FIRE_DECAY: f32 = 3.0;
 /// Peak emissive multiplier at full flare.
@@ -1486,8 +1490,8 @@ fn fire_scheduler(
             continue;
         };
         firing.intensity *= (-dt * FIRE_DECAY).exp();
-        // floor keeps even quiet neurons occasionally firing → baseline life.
-        firing.accumulator += node.activation.max(0.05) * dt * FIRE_RATE;
+        // base ambient liveliness for everyone, plus more the more a neuron actually needs.
+        firing.accumulator += (FIRE_BASE + node.activation.max(0.0) * FIRE_NEED) * dt;
         if firing.accumulator >= node.threshold {
             firing.accumulator = 0.0;
             firing.intensity = 1.0;
