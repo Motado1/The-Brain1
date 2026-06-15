@@ -1,18 +1,22 @@
 //! The Neural Business Engine — renderer + navigation.
 //!
-//! Loads the graph from SQLite (`--db <path>`, default `brain.db`) and renders it as the
-//! "celestial" model: three spatial **clusters** (CRM / Research / Financial), each an organic
-//! web of glowing nodes, connected by curved filaments with travelling action-potential sparks.
-//! A left **sidebar** lists the clusters and their nodes; clicking flies the camera there.
+//! Loads the graph from SQLite (`--db <path>`, default `brain.db`) and renders it as two distinct
+//! **networks** floating far apart in space, like separate constellations:
+//!   * **Business** — CRM clients + their financial ledger, one interconnected web. Per-client
+//!     revenue (summed from connected ledger entries) and renewal dates surface in the sidebar.
+//!   * **Research** — the knowledge base, off in the distance, growing its own web as notes link
+//!     to topic hubs.
+//! Nodes are glowing neurons; edges are hollow, translucent glass tubes with travelling sparks.
+//! Camera: left-drag orbits, right/middle-drag pans, scroll flies forward/back, Esc unfocuses.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::input::mouse::{MouseMotion, MouseWheel};
-use bevy::mesh::PrimitiveTopology;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::settings::{Backends, PowerPreference, RenderCreation, WgpuSettings};
@@ -21,6 +25,8 @@ use bevy::render::RenderPlugin;
 use bevy::window::WindowResolution;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 
+use nbe_cli::datetime::format_date;
+use nbe_cli::money::format_cents;
 use nbe_geometry::{edge_curve, CurveParams};
 
 #[derive(Resource)]
@@ -100,50 +106,82 @@ fn run_report(path: &str, tab: BizTab) -> String {
     res.unwrap_or_else(|e| format!("error: {e}"))
 }
 
-// ---- clusters --------------------------------------------------------------------------
+// ---- networks + node kinds -------------------------------------------------------------
 
+/// A self-contained graph, rendered far from its sibling so each reads as its own constellation.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Cluster {
-    Crm,
+enum Network {
+    Business,
     Research,
-    Financial,
 }
 
-impl Cluster {
-    const ALL: [Cluster; 3] = [Cluster::Crm, Cluster::Research, Cluster::Financial];
+impl Network {
+    const ALL: [Network; 2] = [Network::Business, Network::Research];
 
     fn label(self) -> &'static str {
         match self {
-            Cluster::Crm => "CRM — Clients",
-            Cluster::Research => "Research — Knowledge",
-            Cluster::Financial => "Financial — Ledger",
+            Network::Business => "Business — Clients & Ledger",
+            Network::Research => "Research — Knowledge",
+        }
+    }
+
+    /// World-space centre. Research sits far away so it hangs in the sky like a distant cluster.
+    fn center(self) -> Vec3 {
+        match self {
+            Network::Business => Vec3::ZERO,
+            Network::Research => Vec3::new(850.0, 130.0, -380.0),
+        }
+    }
+
+    /// Ellipsoid extents the network's nodes fill.
+    fn radii(self) -> Vec3 {
+        match self {
+            Network::Business => Vec3::new(95.0, 72.0, 95.0),
+            Network::Research => Vec3::new(60.0, 48.0, 60.0),
+        }
+    }
+}
+
+/// What a node *is* — drives colour and size. Kind determines which network it lives in.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Kind {
+    Client,
+    Ledger,
+    Knowledge,
+}
+
+impl Kind {
+    fn network(self) -> Network {
+        match self {
+            Kind::Knowledge => Network::Research,
+            Kind::Client | Kind::Ledger => Network::Business,
         }
     }
 
     /// Base emissive hue (pre activation/intensity).
     fn base_color(self) -> (f32, f32, f32) {
         match self {
-            Cluster::Crm => (0.12, 0.6, 1.0),       // cyan
-            Cluster::Research => (0.2, 1.0, 0.45),  // green
-            Cluster::Financial => (1.0, 0.6, 0.12), // amber
+            Kind::Client => (0.12, 0.6, 1.0),     // cyan
+            Kind::Ledger => (1.0, 0.6, 0.12),     // amber
+            Kind::Knowledge => (0.2, 1.0, 0.45),  // green
         }
     }
 
     /// Base node radius — clients are the big "neurons".
     fn base_size(self) -> f32 {
         match self {
-            Cluster::Crm => 0.95,
-            Cluster::Research => 0.5,
-            Cluster::Financial => 0.55,
+            Kind::Client => 1.0,
+            Kind::Ledger => 0.45,
+            Kind::Knowledge => 0.6,
         }
     }
 
-    /// Nominal centre of this cluster's region within the brain.
-    fn center(self) -> Vec3 {
+    /// How far out in the network's shell this kind tends to sit (0 = core, 1 = surface).
+    fn shell(self) -> f32 {
         match self {
-            Cluster::Crm => Vec3::new(-48.0, 0.0, 0.0),       // left hemisphere
-            Cluster::Research => Vec3::new(48.0, 0.0, 0.0),   // right hemisphere
-            Cluster::Financial => Vec3::new(0.0, -52.0, -30.0), // lower-central mass
+            Kind::Client => 0.3,
+            Kind::Ledger => 0.65,
+            Kind::Knowledge => 0.45,
         }
     }
 }
@@ -154,8 +192,13 @@ const EDGE_WEIGHT_MIN: f64 = 0.55;
 
 struct NodeInfo {
     name: String,
-    cluster: Cluster,
+    kind: Kind,
+    network: Network,
     pos: Vec3,
+    /// Summed income from connected ledger entries (clients only).
+    revenue_cents: Option<i64>,
+    /// Client renewal date (unix seconds).
+    renewal: Option<i64>,
 }
 
 #[derive(Resource, Default)]
@@ -163,19 +206,20 @@ struct NodeRegistry {
     nodes: Vec<NodeInfo>,
     galaxy_center: Vec3,
     galaxy_radius: f32,
+    total_revenue_cents: i64,
 }
 
 impl NodeRegistry {
-    /// Focus + radius to frame a whole cluster.
-    fn cluster_view(&self, cluster: Cluster) -> (Vec3, f32) {
+    /// Focus + radius to frame a whole network.
+    fn network_view(&self, network: Network) -> (Vec3, f32) {
         let pts: Vec<Vec3> = self
             .nodes
             .iter()
-            .filter(|n| n.cluster == cluster)
+            .filter(|n| n.network == network)
             .map(|n| n.pos)
             .collect();
         if pts.is_empty() {
-            return (cluster.center(), 120.0);
+            return (network.center(), 200.0);
         }
         let center = pts.iter().copied().sum::<Vec3>() / pts.len() as f32;
         let radius = pts
@@ -190,6 +234,13 @@ impl NodeRegistry {
 /// When set, the camera smoothly flies to this (focus, radius).
 #[derive(Resource, Default)]
 struct CameraTarget(Option<(Vec3, f32)>);
+
+/// True while the mouse pointer is over an egui panel — suppresses camera input so scrolling a
+/// sidebar list doesn't also zoom the 3D view.
+#[derive(Resource, Default)]
+struct UiPointer {
+    over: bool,
+}
 
 fn db_path_from_args() -> String {
     let mut args = std::env::args().skip(1);
@@ -239,8 +290,12 @@ fn main() {
         .insert_resource(NodeRegistry::default())
         .insert_resource(BusinessPanel::default())
         .insert_resource(SceneControl::default())
+        .insert_resource(UiPointer::default())
         .add_systems(Startup, (load_graph, setup_hud))
-        .add_systems(EguiPrimaryContextPass, (sidebar_ui, business_panel_ui))
+        .add_systems(
+            EguiPrimaryContextPass,
+            (sidebar_ui, business_panel_ui, sync_ui_pointer).chain(),
+        )
         .add_systems(
             Update,
             (
@@ -335,19 +390,13 @@ fn fib_dir(i: usize, n: usize) -> Vec3 {
     Vec3::new(r * th.cos(), y, r * th.sin())
 }
 
-/// Place a node inside its cluster's region of the brain: two hemispheres (CRM left,
-/// Research right) + a lower-central mass (Financial), with a shell bias so nodes gather
-/// near the cortex surface like the reference brain.
-fn brain_pos(cluster: Cluster, i: usize, n: usize, id: &str) -> Vec3 {
+/// Place a node inside its network's ellipsoid, biased toward its kind's shell radius.
+fn net_pos(network: Network, kind: Kind, i: usize, n: usize, id: &str) -> Vec3 {
     let dir = fib_dir(i, n);
     let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * 4.0;
-    let (center, radii, shell) = match cluster {
-        Cluster::Crm => (Vec3::new(-48.0, 0.0, 0.0), Vec3::new(50.0, 70.0, 85.0), 0.5),
-        Cluster::Research => (Vec3::new(48.0, 0.0, 0.0), Vec3::new(50.0, 70.0, 85.0), 0.5),
-        Cluster::Financial => (Vec3::new(0.0, -52.0, -30.0), Vec3::new(42.0, 34.0, 44.0), 0.4),
-    };
+    let shell = kind.shell();
     let rr = shell + (1.0 - shell) * rand01(id, 11);
-    center + (dir * rr) * radii + jitter
+    network.center() + (dir * rr) * network.radii() + jitter
 }
 
 fn lcg(state: &mut u64) -> f32 {
@@ -371,20 +420,9 @@ fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
     }
 }
 
-fn money(cents: i64) -> String {
-    let a = cents.abs();
-    format!(
-        "{}${}.{:02}",
-        if cents < 0 { "-" } else { "" },
-        a / 100,
-        a % 100
-    )
-}
-
-/// Emissive (HDR) for a node: cluster hue at rest, shifting to a warm amber hotspot as it
-/// activates (matching the bright orange clusters in the reference brain).
-fn node_emissive(cluster: Cluster, activation: f32) -> LinearRgba {
-    let (br, bg, bb) = cluster.base_color();
+/// Emissive (HDR) for a node: kind hue at rest, shifting to a warm amber hotspot as it activates.
+fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
+    let (br, bg, bb) = kind.base_color();
     let (hr, hg, hb) = (1.0, 0.72, 0.32); // warm amber-white hot
     let t = activation.clamp(0.0, 1.0);
     let mix = |b: f32, h: f32| b + (h - b) * t * 0.9;
@@ -411,17 +449,60 @@ fn bounds(points: &[Vec3]) -> (Vec3, f32) {
     (center, radius)
 }
 
-fn line_mesh(points: &[Vec3]) -> Mesh {
-    let positions: Vec<[f32; 3]> = points.iter().map(|v| v.to_array()).collect();
-    let normals: Vec<[f32; 3]> = vec![[0.0, 0.0, 1.0]; points.len()];
-    let uvs: Vec<[f32; 2]> = vec![[0.0, 0.0]; points.len()];
-    Mesh::new(
-        PrimitiveTopology::LineStrip,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+/// A translucent tube swept along `points` — the "clear glass filament" look from the references.
+/// Builds a ring of `sides` vertices per path point and stitches consecutive rings into a sleeve.
+fn tube_mesh(points: &[Vec3], radius: f32, sides: usize) -> Mesh {
+    let usages = RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD;
+    if points.len() < 2 {
+        return Mesh::new(PrimitiveTopology::TriangleList, usages);
+    }
+    let rings = points.len();
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(rings * sides);
+    let mut normals: Vec<[f32; 3]> = Vec::with_capacity(rings * sides);
+    let mut uvs: Vec<[f32; 2]> = Vec::with_capacity(rings * sides);
+    let mut indices: Vec<u32> = Vec::with_capacity((rings - 1) * sides * 6);
+
+    for (ri, &p) in points.iter().enumerate() {
+        let tangent = if ri == 0 {
+            points[1] - points[0]
+        } else if ri == rings - 1 {
+            points[ri] - points[ri - 1]
+        } else {
+            points[ri + 1] - points[ri - 1]
+        }
+        .normalize_or_zero();
+        let t = if tangent.length_squared() < 1e-6 {
+            Vec3::Z
+        } else {
+            tangent
+        };
+        // A pair of axes perpendicular to the tangent to spin the ring around.
+        let up = if t.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+        let n0 = t.cross(up).normalize();
+        let b0 = t.cross(n0).normalize();
+        for s in 0..sides {
+            let a = s as f32 / sides as f32 * std::f32::consts::TAU;
+            let dir = n0 * a.cos() + b0 * a.sin();
+            positions.push((p + dir * radius).to_array());
+            normals.push(dir.to_array());
+            uvs.push([ri as f32 / (rings - 1) as f32, s as f32 / sides as f32]);
+        }
+    }
+    for ri in 0..rings - 1 {
+        for s in 0..sides {
+            let s2 = (s + 1) % sides;
+            let a = (ri * sides + s) as u32;
+            let b = (ri * sides + s2) as u32;
+            let c = ((ri + 1) * sides + s) as u32;
+            let d = ((ri + 1) * sides + s2) as u32;
+            indices.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+    Mesh::new(PrimitiveTopology::TriangleList, usages)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+        .with_inserted_indices(Indices::U32(indices))
 }
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
@@ -433,6 +514,12 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
     };
     commands.spawn((
         Camera3d::default(),
+        // Far plane reaches the distant Research network so it stays visible from Business.
+        Projection::from(PerspectiveProjection {
+            far: 20_000.0,
+            near: 0.1,
+            ..default()
+        }),
         Hdr,
         Tonemapping::TonyMcMapface,
         Bloom::NATURAL,
@@ -488,8 +575,9 @@ fn apply_reload(
     );
 }
 
-/// Load the DB and spawn the whole brain (nodes, edges, sparks), all tagged `SceneItem`. Returns
-/// the framing bounds `(center, radius)`, or `None` if the DB is missing/empty.
+/// Load the DB and spawn both networks (nodes, edges, sparks), all tagged `SceneItem`. Returns the
+/// framing bounds `(center, radius)` of the **Business** network for the initial camera, or `None`
+/// if the DB is missing/empty.
 fn build_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -518,26 +606,26 @@ fn build_scene(
     }
     info!("loaded {} entities, {} edges", snap.entities.len(), snap.edges.len());
 
-    // Cluster + display name per entity (priority CRM > Research > Financial).
-    let mut cluster_of: HashMap<String, Cluster> = HashMap::new();
+    // Kind + display name per entity (priority Client > Knowledge > Ledger).
+    let mut kind_of: HashMap<String, Kind> = HashMap::new();
     let mut name_of: HashMap<String, String> = HashMap::new();
     for c in &snap.crm {
-        cluster_of.insert(c.entity_id.clone(), Cluster::Crm);
+        kind_of.insert(c.entity_id.clone(), Kind::Client);
         name_of.insert(
             c.entity_id.clone(),
             c.contact.clone().unwrap_or_else(|| "client".into()),
         );
     }
     for k in &snap.knowledge {
-        cluster_of.entry(k.entity_id.clone()).or_insert(Cluster::Research);
+        kind_of.entry(k.entity_id.clone()).or_insert(Kind::Knowledge);
         let title = k.body_md.lines().next().unwrap_or("note").trim_start_matches("# ");
         name_of.entry(k.entity_id.clone()).or_insert_with(|| title.to_string());
     }
     for l in &snap.ledger {
-        cluster_of.entry(l.entity_id.clone()).or_insert(Cluster::Financial);
+        kind_of.entry(l.entity_id.clone()).or_insert(Kind::Ledger);
         name_of
             .entry(l.entity_id.clone())
-            .or_insert_with(|| format!("{} [{}]", money(l.amount_cents), l.invoice_status));
+            .or_insert_with(|| format!("{} [{}]", format_cents(l.amount_cents), l.invoice_status));
     }
 
     let activation: HashMap<String, f64> = snap
@@ -546,36 +634,71 @@ fn build_scene(
         .map(|a| (a.entity_id.clone(), a.value))
         .collect();
 
-    // Group entity ids by cluster (sorted for deterministic positions).
-    let mut groups: HashMap<Cluster, Vec<String>> = HashMap::new();
+    // Financial roll-up: per-client revenue from connected (non-expense) ledger entries, plus a
+    // grand total. This is the "combine financial into the client network" surfacing.
+    let ledger_amt: HashMap<&str, (i64, bool)> = snap
+        .ledger
+        .iter()
+        .map(|l| (l.entity_id.as_str(), (l.amount_cents, l.is_expense)))
+        .collect();
+    let client_ids: HashSet<&str> = snap.crm.iter().map(|c| c.entity_id.as_str()).collect();
+    let renewal_of: HashMap<&str, Option<i64>> =
+        snap.crm.iter().map(|c| (c.entity_id.as_str(), c.renewal_date)).collect();
+    let mut revenue_of: HashMap<String, i64> = HashMap::new();
+    for e in &snap.edges {
+        if client_ids.contains(e.source_id.as_str()) {
+            if let Some(&(amt, exp)) = ledger_amt.get(e.target_id.as_str()) {
+                if !exp {
+                    *revenue_of.entry(e.source_id.clone()).or_default() += amt;
+                }
+            }
+        }
+        if client_ids.contains(e.target_id.as_str()) {
+            if let Some(&(amt, exp)) = ledger_amt.get(e.source_id.as_str()) {
+                if !exp {
+                    *revenue_of.entry(e.target_id.clone()).or_default() += amt;
+                }
+            }
+        }
+    }
+    registry.total_revenue_cents = snap
+        .ledger
+        .iter()
+        .filter(|l| !l.is_expense)
+        .map(|l| l.amount_cents)
+        .sum();
+
+    // Group entity ids by network (sorted for deterministic positions).
+    let mut groups: HashMap<Network, Vec<String>> = HashMap::new();
     for e in &snap.entities {
-        let cl = *cluster_of.get(&e.id).unwrap_or(&Cluster::Research);
-        groups.entry(cl).or_default().push(e.id.clone());
+        let kind = *kind_of.get(&e.id).unwrap_or(&Kind::Knowledge);
+        groups.entry(kind.network()).or_default().push(e.id.clone());
     }
     for ids in groups.values_mut() {
         ids.sort();
     }
 
-    // Position each cluster's nodes inside its region of the brain.
+    // Position each network's nodes inside its ellipsoid.
     let mut pos: HashMap<String, Vec3> = HashMap::new();
-    for (&cluster, ids) in &groups {
+    for (&network, ids) in &groups {
         let n = ids.len().max(1);
         for (i, id) in ids.iter().enumerate() {
-            pos.insert(id.clone(), brain_pos(cluster, i, n, id));
+            let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
+            pos.insert(id.clone(), net_pos(network, kind, i, n, id));
         }
     }
 
     // Spawn nodes + build the navigation registry.
     let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
-    registry.nodes.clear();
-    for (&cluster, ids) in &groups {
+    for (&network, ids) in &groups {
         for id in ids {
+            let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
             let a = *activation.get(id).unwrap_or(&0.0) as f32;
-            let r = cluster.base_size() + a * 0.45;
+            let r = kind.base_size() + a * 0.45;
             let p = pos[id];
             let mat = materials.add(StandardMaterial {
                 base_color: Color::srgb(0.02, 0.06, 0.14),
-                emissive: node_emissive(cluster, a),
+                emissive: node_emissive(kind, a),
                 perceptual_roughness: 0.4,
                 ..default()
             });
@@ -592,21 +715,32 @@ fn build_scene(
             ));
             registry.nodes.push(NodeInfo {
                 name: name_of.get(id).cloned().unwrap_or_else(|| id[..8].to_string()),
-                cluster,
+                kind,
+                network,
                 pos: p,
+                revenue_cents: (kind == Kind::Client).then(|| revenue_of.get(id).copied().unwrap_or(0)),
+                renewal: if kind == Kind::Client {
+                    renewal_of.get(id.as_str()).copied().flatten()
+                } else {
+                    None
+                },
             });
         }
     }
 
-    // Edges: curved filaments (stronger ones only), reused by the sparks.
+    // Edges: hollow glass tubes (stronger ones only), reused by the sparks. Only ever drawn
+    // between two nodes in the *same* network — no lines stretch across the void.
     let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.0, 0.0, 0.0, 0.4),
-        emissive: LinearRgba::rgb(0.05, 0.30, 0.70),
+        base_color: Color::srgba(0.45, 0.75, 1.0, 0.12),
+        emissive: LinearRgba::rgb(0.07, 0.3, 0.6),
         alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        perceptual_roughness: 0.25,
+        metallic: 0.0,
         ..default()
     });
     let curve_params = CurveParams {
-        samples: 18,
+        samples: 14,
         bow: 0.1,
         sag: 0.03,
         jitter: 0.015,
@@ -614,15 +748,20 @@ fn build_scene(
     };
     let mut edge_paths: Vec<Vec<Vec3>> = Vec::new();
     for e in &snap.edges {
+        if e.weight < EDGE_WEIGHT_MIN {
+            continue;
+        }
         let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
             continue;
         };
-        if e.weight < EDGE_WEIGHT_MIN {
+        let net_a = kind_of.get(&e.source_id).map(|k| k.network());
+        let net_b = kind_of.get(&e.target_id).map(|k| k.network());
+        if net_a != net_b {
             continue;
         }
         let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
         commands.spawn((
-            Mesh3d(meshes.add(line_mesh(&curve))),
+            Mesh3d(meshes.add(tube_mesh(&curve, 0.16, 6))),
             MeshMaterial3d(edge_mat.clone()),
             Transform::default(),
             SceneItem,
@@ -664,7 +803,8 @@ fn build_scene(
     let (center, radius) = bounds(&all);
     registry.galaxy_center = center;
     registry.galaxy_radius = radius;
-    Some((center, radius))
+    // Frame the Business network for the opening shot (Research is a distant cluster behind it).
+    Some(registry.network_view(Network::Business))
 }
 
 // ---- UI + camera -----------------------------------------------------------------------
@@ -680,7 +820,7 @@ fn sidebar_ui(
         return;
     };
     egui::SidePanel::left("nav")
-        .default_width(250.0)
+        .default_width(270.0)
         .show(ctx, |ui| {
             ui.heading("The Brain");
             if ui.button("➕ Add Research").clicked() {
@@ -711,33 +851,81 @@ fn sidebar_ui(
             if ui.button("Galaxy view").clicked() {
                 target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
             }
+            ui.small("left-drag orbit · right-drag pan · scroll fly · Esc unfocus");
             ui.separator();
-            for cluster in Cluster::ALL {
-                let count = registry.nodes.iter().filter(|n| n.cluster == cluster).count();
-                egui::CollapsingHeader::new(format!("{} ({count})", cluster.label()))
-                    .default_open(false)
+
+            for network in Network::ALL {
+                let count = registry.nodes.iter().filter(|n| n.network == network).count();
+                egui::CollapsingHeader::new(format!("{} ({count})", network.label()))
+                    .default_open(network == Network::Business)
                     .show(ui, |ui| {
-                        if ui.button("→ go to cluster").clicked() {
-                            let (c, r) = registry.cluster_view(cluster);
+                        if ui.button("→ go to network").clicked() {
+                            let (c, r) = registry.network_view(network);
                             target.0 = Some((c, r));
                         }
-                        egui::ScrollArea::vertical()
-                            .max_height(280.0)
-                            .id_salt(cluster.label())
-                            .show(ui, |ui| {
-                                let mut items: Vec<&NodeInfo> = registry
-                                    .nodes
-                                    .iter()
-                                    .filter(|n| n.cluster == cluster)
-                                    .collect();
-                                items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-                                for ni in items {
-                                    if ui.button(&ni.name).clicked() {
-                                        target.0 = Some((ni.pos, 22.0));
-                                    }
-                                }
-                            });
+                        if network == Network::Business {
+                            ui.label(format!(
+                                "Total revenue: {}",
+                                format_cents(registry.total_revenue_cents)
+                            ));
+                            client_list(ui, &registry, &mut target);
+                        } else {
+                            knowledge_list(ui, &registry, &mut target);
+                        }
                     });
+            }
+        });
+}
+
+/// Business clients, each expandable to its revenue + renewal date, with a fly-to button.
+fn client_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTarget) {
+    let mut items: Vec<(usize, &NodeInfo)> = registry
+        .nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n.kind == Kind::Client)
+        .collect();
+    items.sort_by(|(_, a), (_, b)| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    egui::ScrollArea::vertical()
+        .max_height(320.0)
+        .id_salt("clients")
+        .show(ui, |ui| {
+            for (idx, ni) in items {
+                egui::CollapsingHeader::new(&ni.name)
+                    .id_salt(idx)
+                    .show(ui, |ui| {
+                        ui.label(format!(
+                            "Revenue: {}",
+                            format_cents(ni.revenue_cents.unwrap_or(0))
+                        ));
+                        match ni.renewal {
+                            Some(d) => ui.label(format!("Renewal: {}", format_date(d))),
+                            None => ui.label("Renewal: —"),
+                        };
+                        if ui.button("→ fly to").clicked() {
+                            target.0 = Some((ni.pos, 22.0));
+                        }
+                    });
+            }
+        });
+}
+
+/// Research notes, each a fly-to button.
+fn knowledge_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTarget) {
+    let mut items: Vec<&NodeInfo> = registry
+        .nodes
+        .iter()
+        .filter(|n| n.kind == Kind::Knowledge)
+        .collect();
+    items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    egui::ScrollArea::vertical()
+        .max_height(320.0)
+        .id_salt("knowledge")
+        .show(ui, |ui| {
+            for ni in items {
+                if ui.button(&ni.name).clicked() {
+                    target.0 = Some((ni.pos, 18.0));
+                }
             }
         });
 }
@@ -780,17 +968,30 @@ fn business_panel_ui(
         });
 }
 
+/// Mark whether the pointer is over an egui panel, so the camera ignores scroll/drag there.
+fn sync_ui_pointer(mut contexts: EguiContexts, mut ui: ResMut<UiPointer>) {
+    if let Ok(ctx) = contexts.ctx_mut() {
+        ui.over = ctx.is_pointer_over_area() || ctx.wants_pointer_input();
+    }
+}
+
 fn orbit_camera(
     time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut target: ResMut<CameraTarget>,
+    registry: Res<NodeRegistry>,
+    ui: Res<UiPointer>,
     mut query: Query<(&mut OrbitCamera, &mut Transform)>,
 ) {
-    let dragging = mouse_buttons.pressed(MouseButton::Left);
+    let orbiting = mouse_buttons.pressed(MouseButton::Left);
+    let panning =
+        mouse_buttons.pressed(MouseButton::Right) || mouse_buttons.pressed(MouseButton::Middle);
+
     let mut drag = Vec2::ZERO;
-    if dragging {
+    if orbiting || panning {
         for ev in motion.read() {
             drag += ev.delta;
         }
@@ -802,15 +1003,20 @@ fn orbit_camera(
         scroll += ev.y;
     }
 
+    // Pointer over a panel? Don't let sidebar scrolling/dragging move the camera.
+    if ui.over {
+        drag = Vec2::ZERO;
+        scroll = 0.0;
+    }
+
+    // Esc unfocuses to the whole-scene view.
+    if keys.just_pressed(KeyCode::Escape) {
+        target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
+    }
     // Manual interaction cancels an active fly-to.
     if drag != Vec2::ZERO || scroll != 0.0 {
         target.0 = None;
     }
-    let idle = if dragging || target.0.is_some() {
-        0.0
-    } else {
-        time.delta_secs() * 0.05
-    };
 
     for (mut orbit, mut transform) in &mut query {
         if let Some((focus, radius)) = target.0 {
@@ -821,10 +1027,24 @@ fn orbit_camera(
                 target.0 = None;
             }
         }
-        orbit.yaw += idle - drag.x * 0.005;
-        orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
-        let factor = (1.0 - scroll * 0.08).clamp(0.5, 2.0);
-        orbit.radius = (orbit.radius * factor).clamp(3.0, 1200.0);
+        if orbiting {
+            orbit.yaw -= drag.x * 0.005;
+            orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
+        }
+
+        let eye = orbit.eye();
+        let radius = orbit.radius;
+        let forward = (orbit.focus - eye).normalize_or_zero();
+        if panning && drag != Vec2::ZERO {
+            let right = forward.cross(Vec3::Y).normalize_or_zero();
+            let up = right.cross(forward).normalize_or_zero();
+            orbit.focus += (-right * drag.x + up * drag.y) * (radius * 0.0015);
+        }
+        if scroll != 0.0 {
+            // Dolly: fly the camera forward/back along the view direction (not just zoom distance).
+            orbit.focus += forward * scroll * (radius * 0.15 + 4.0);
+        }
+        orbit.radius = orbit.radius.clamp(1.0, 6000.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
     }
 }
