@@ -26,15 +26,6 @@ impl Network {
             Network::Research => Vec3::new(1100.0, 160.0, -480.0),
         }
     }
-
-    /// Ellipsoid extents the network's nodes fill. Generous so neurons sit well apart (a spread-out
-    /// cluster, not a dense ball); both networks use a similar scale so they read alike.
-    pub(crate) fn radii(self) -> Vec3 {
-        match self {
-            Network::Business => Vec3::new(230.0, 175.0, 230.0),
-            Network::Research => Vec3::new(200.0, 150.0, 200.0),
-        }
-    }
 }
 
 /// What a node *is* — drives colour and size. Kind determines which network it lives in.

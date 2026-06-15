@@ -136,6 +136,7 @@ pub(crate) fn fire_scheduler(
                             target: edge.target,
                             energy: PULSE_ENERGY,
                         },
+                        Billboard,
                         SceneItem,
                     ));
                 }
@@ -185,17 +186,11 @@ pub(crate) fn advance_pulses(
         };
         pulse.t += pulse.speed * dt;
         let tt = pulse.t.min(1.0);
-        let path = &edge.path;
-        let a = sample_path(path, (tt - 0.02).max(0.0));
-        let b = sample_path(path, (tt + 0.02).min(1.0));
-        tr.translation = sample_path(path, tt);
-        let dir = (b - a).normalize_or_zero();
-        if dir.length_squared() > 1e-6 {
-            tr.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
-        }
+        // Soft round glow that fades in/out along the path (rotation is handled by face_camera, so
+        // it always faces us as a shapeless blob — no hard streak).
+        tr.translation = sample_path(&edge.path, tt);
         let env = (tt * std::f32::consts::PI).sin().max(0.0);
-        let glow = 0.2 + 0.8 * env;
-        tr.scale = Vec3::new(0.3 * glow, 0.3 * glow, 2.2 * glow);
+        tr.scale = Vec3::splat(2.4 * (0.35 + 0.65 * env));
         if pulse.t >= 1.0 {
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {

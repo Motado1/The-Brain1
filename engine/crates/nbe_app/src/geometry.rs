@@ -36,13 +36,21 @@ pub(crate) fn fib_dir(i: usize, n: usize) -> Vec3 {
     Vec3::new(r * th.cos(), y, r * th.sin())
 }
 
+/// Ellipsoid extents for a network of `n` nodes. Radius ∝ n^(1/3) keeps node spacing — and thus
+/// the woven-mesh density — constant no matter how many nodes a network has, so a 35-node cluster
+/// and a 350-node cluster read identically (just different overall size).
+pub(crate) fn density_radii(n: usize) -> Vec3 {
+    (n.max(1) as f32).cbrt() * Vec3::new(32.6, 24.8, 32.6)
+}
+
 /// Place a node inside its network's ellipsoid, biased toward its kind's shell radius.
-pub(crate) fn net_pos(network: Network, kind: Kind, i: usize, n: usize, id: &str) -> Vec3 {
+pub(crate) fn net_pos(center: Vec3, radii: Vec3, kind: Kind, i: usize, n: usize, id: &str) -> Vec3 {
     let dir = fib_dir(i, n);
-    let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * 22.0;
+    // jitter proportional to size so the scatter looks the same organic amount at any scale.
+    let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * (radii.x * 0.1);
     let shell = kind.shell();
     let rr = shell + (1.0 - shell) * rand01(id, 11);
-    network.center() + (dir * rr) * network.radii() + jitter
+    center + (dir * rr) * radii + jitter
 }
 
 pub(crate) fn lcg(state: &mut u64) -> f32 {

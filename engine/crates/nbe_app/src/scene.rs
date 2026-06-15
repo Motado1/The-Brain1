@@ -240,13 +240,16 @@ fn build_scene(
         ids.sort();
     }
 
-    // Position each network's nodes inside its ellipsoid.
+    // Position each network's nodes inside an ellipsoid sized to its node count (constant density).
     let mut pos: HashMap<String, Vec3> = HashMap::new();
+    let mut net_radii: HashMap<Network, Vec3> = HashMap::new();
     for (&network, ids) in &groups {
         let n = ids.len().max(1);
+        let radii = density_radii(n);
+        net_radii.insert(network, radii);
         for (i, id) in ids.iter().enumerate() {
             let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
-            pos.insert(id.clone(), net_pos(network, kind, i, n, id));
+            pos.insert(id.clone(), net_pos(network.center(), radii, kind, i, n, id));
         }
     }
 
@@ -282,6 +285,19 @@ fn build_scene(
         ..default()
     });
 
+    // Shared translucent "membrane": the neuron's body. Faintly warm and see-through, so the
+    // bright core spawned *inside* it reads as light glowing from within — not the node being a
+    // bare light source. Low emissive keeps the body visible without making it a lamp.
+    let membrane_mat = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.55, 0.3, 0.13, 0.22),
+        emissive: LinearRgba::rgb(0.14, 0.06, 0.018),
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        perceptual_roughness: 0.4,
+        metallic: 0.0,
+        ..default()
+    });
+
     // Per-entity firing threshold (defaults 0.5).
     let threshold_of: HashMap<&str, f32> = snap
         .activations
@@ -300,10 +316,11 @@ fn build_scene(
             let r = kind.base_size() + act * 0.45;
             let p = pos[id];
             let base_emissive = node_emissive(kind, act);
-            let mat = materials.add(StandardMaterial {
-                base_color: Color::srgb(0.08, 0.03, 0.01),
+            // The bright core lives *inside* the translucent body — this is the light, flared by
+            // firing. It's smaller than the body so the glow reads as contained within the cell.
+            let core_mat = materials.add(StandardMaterial {
+                base_color: Color::BLACK,
                 emissive: base_emissive,
-                perceptual_roughness: 0.4,
                 ..default()
             });
             // Soft glow halo (camera-facing) — spawned first so the neuron can flare it.
@@ -316,7 +333,7 @@ fn build_scene(
                 .spawn((
                     Mesh3d(halo_quad.clone()),
                     MeshMaterial3d(halo_mat),
-                    Transform::from_translation(p).with_scale(Vec3::splat(r * 3.0)),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 2.4)),
                     Billboard,
                     SceneItem,
                 ))
@@ -335,17 +352,16 @@ fn build_scene(
                 rand_unit(id, 25) * std::f32::consts::PI,
                 rand_unit(id, 26) * std::f32::consts::PI,
             );
+            let phase = rand_unit(id, 9) * std::f32::consts::TAU;
+            let speed = 0.6 + rand01(id, 10) * 0.8;
             let idx = graph.nodes.len();
+            // Translucent body (carries the firing state + drives the inner core).
             let node = commands
                 .spawn((
                     Mesh3d(sphere.clone()),
-                    MeshMaterial3d(mat.clone()),
+                    MeshMaterial3d(membrane_mat.clone()),
                     Transform { translation: p, rotation: tilt, scale: shape },
-                    Breath {
-                        base: shape,
-                        phase: rand_unit(id, 9) * std::f32::consts::TAU,
-                        speed: 0.6 + rand01(id, 10) * 0.8,
-                    },
+                    Breath { base: shape, phase, speed },
                     Neuron(idx),
                     // Random initial charge so neurons don't all fire in lockstep.
                     Firing {
@@ -356,13 +372,21 @@ fn build_scene(
                         base_emissive,
                         base_radius: r,
                         halo,
-                        mat: mat.clone(),
+                        mat: core_mat.clone(),
                         phase: rand_unit(id, 8) * std::f32::consts::TAU,
                         twinkle: 0.08 + rand01(id, 15) * 0.08,
                     },
                     SceneItem,
                 ))
                 .id();
+            // The glowing core, sitting inside the body (breathes in sync, smaller).
+            commands.spawn((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(core_mat),
+                Transform { translation: p, rotation: tilt, scale: shape * 0.5 },
+                Breath { base: shape * 0.5, phase, speed },
+                SceneItem,
+            ));
 
             graph.nodes.push(GraphNode {
                 entity: node,
@@ -476,15 +500,18 @@ fn build_scene(
         }
     }
 
-    // Pulse asset shared by all propagation pulses (spawned at runtime when neurons fire).
+    // Pulse asset: a soft round glow sprite (radial-gradient billboard), not a hard shape — so a
+    // travelling signal reads as a gentle blob of light drifting along the filament.
     let pulse_material = materials.add(StandardMaterial {
-        base_color: Color::BLACK,
-        emissive: LinearRgba::rgb(6.0, 3.3, 1.2),
+        base_color: Color::LinearRgba(LinearRgba::new(2.6, 1.5, 0.6, 1.0)),
+        base_color_texture: Some(glow.clone()),
+        unlit: true,
         alpha_mode: AlphaMode::Add,
+        cull_mode: None,
         ..default()
     });
     commands.insert_resource(PulseAssets {
-        mesh: sphere.clone(),
+        mesh: halo_quad.clone(),
         material: pulse_material,
     });
 
@@ -500,7 +527,7 @@ fn build_scene(
     let mut ms = 0xD1B5_4A32u64;
     for network in Network::ALL {
         let center = network.center();
-        let radius = network.radii().max_element() * 1.3;
+        let radius = net_radii.get(&network).map(|r| r.max_element()).unwrap_or(120.0) * 1.3;
         for _ in 0..MOTES_PER_NETWORK {
             let dir = Vec3::new(
                 lcg(&mut ms) - 0.5,
