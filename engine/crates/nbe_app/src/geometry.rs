@@ -39,7 +39,7 @@ pub(crate) fn fib_dir(i: usize, n: usize) -> Vec3 {
 /// Place a node inside its network's ellipsoid, biased toward its kind's shell radius.
 pub(crate) fn net_pos(network: Network, kind: Kind, i: usize, n: usize, id: &str) -> Vec3 {
     let dir = fib_dir(i, n);
-    let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * 4.0;
+    let jitter = Vec3::new(rand_unit(id, 12), rand_unit(id, 13), rand_unit(id, 14)) * 22.0;
     let shell = kind.shell();
     let rr = shell + (1.0 - shell) * rand01(id, 11);
     network.center() + (dir * rr) * network.radii() + jitter
@@ -66,13 +66,14 @@ pub(crate) fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
     }
 }
 
-/// Emissive (HDR) for a node: kind hue at rest, shifting to a warm amber hotspot as it activates.
+/// Emissive (HDR) for a node: a *subtle* cool glow at rest, brightening toward a white-cyan
+/// hotspot as it activates. Kept dim so most neurons sit quiet and only the active few stand out.
 pub(crate) fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
     let (br, bg, bb) = kind.base_color();
     let (hr, hg, hb) = (1.0, 0.92, 0.7); // white-hot honey core
     let t = activation.clamp(0.0, 1.0);
-    let mix = |b: f32, h: f32| b + (h - b) * t * 0.9;
-    let intensity = 0.9 + activation * 7.0;
+    let mix = |b: f32, h: f32| b + (h - b) * t * 0.7;
+    let intensity = 0.3 + activation * 2.0;
     LinearRgba::rgb(
         mix(br, hr) * intensity,
         mix(bg, hg) * intensity,

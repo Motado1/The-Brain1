@@ -55,7 +55,7 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
         // A touch of warm ambient so the glass tubes aren't pure black where unlit.
         AmbientLight {
             color: Color::srgb(1.0, 0.7, 0.45),
-            brightness: 60.0,
+            brightness: 45.0,
             ..default()
         },
         Transform::from_translation(cam.eye()).looking_at(cam.focus, Vec3::Y),
@@ -229,6 +229,11 @@ fn build_scene(
     let mut groups: HashMap<Network, Vec<String>> = HashMap::new();
     for e in &snap.entities {
         let kind = *kind_of.get(&e.id).unwrap_or(&Kind::Knowledge);
+        // Ledger entries are folded into their client (money already rolls into the client neuron),
+        // so the overview reads as ~one neuron per client, not client + every invoice.
+        if kind == Kind::Ledger {
+            continue;
+        }
         groups.entry(kind.network()).or_default().push(e.id.clone());
     }
     for ids in groups.values_mut() {
@@ -252,8 +257,8 @@ fn build_scene(
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
         let (r, g, b) = kind.base_color();
         materials.add(StandardMaterial {
-            // base_color > 1 → HDR halo that blooms; multiplied by the radial-gradient texture.
-            base_color: Color::LinearRgba(LinearRgba::new(r * 2.6, g * 2.6, b * 2.6, 1.0)),
+            // Subtle bloom — a soft glow, not a star. Multiplied by the radial-gradient texture.
+            base_color: Color::LinearRgba(LinearRgba::new(r * 1.3, g * 1.3, b * 1.3, 1.0)),
             base_color_texture: Some(glow.clone()),
             unlit: true,
             alpha_mode: AlphaMode::Add,
@@ -266,10 +271,10 @@ fn build_scene(
         (Kind::Ledger, halo_for(Kind::Ledger, materials)),
         (Kind::Knowledge, halo_for(Kind::Knowledge, materials)),
     ];
-    // Warm translucent glass for the dendrite filaments.
+    // Warm translucent glass for the dendrite filaments — a faint amber haze.
     let dendrite_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 0.55, 0.22, 0.16),
-        emissive: LinearRgba::rgb(0.5, 0.17, 0.04),
+        base_color: Color::srgba(1.0, 0.55, 0.22, 0.12),
+        emissive: LinearRgba::rgb(0.34, 0.12, 0.03),
         alpha_mode: AlphaMode::Blend,
         cull_mode: None,
         perceptual_roughness: 0.1,
@@ -311,20 +316,33 @@ fn build_scene(
                 .spawn((
                     Mesh3d(halo_quad.clone()),
                     MeshMaterial3d(halo_mat),
-                    Transform::from_translation(p).with_scale(Vec3::splat(r * 5.5)),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 3.0)),
                     Billboard,
                     SceneItem,
                 ))
                 .id();
 
+            // Slightly misshapen, organically-oriented cell body (non-uniform scale + a random
+            // tilt) so neurons read as clear blobs, not perfect round stars.
+            let shape = Vec3::new(
+                r * (0.78 + rand01(id, 21) * 0.5),
+                r * (0.78 + rand01(id, 22) * 0.5),
+                r * (0.78 + rand01(id, 23) * 0.5),
+            );
+            let tilt = Quat::from_euler(
+                EulerRot::XYZ,
+                rand_unit(id, 24) * std::f32::consts::PI,
+                rand_unit(id, 25) * std::f32::consts::PI,
+                rand_unit(id, 26) * std::f32::consts::PI,
+            );
             let idx = graph.nodes.len();
             let node = commands
                 .spawn((
                     Mesh3d(sphere.clone()),
                     MeshMaterial3d(mat.clone()),
-                    Transform::from_translation(p).with_scale(Vec3::splat(r)),
+                    Transform { translation: p, rotation: tilt, scale: shape },
                     Breath {
-                        base: r,
+                        base: shape,
                         phase: rand_unit(id, 9) * std::f32::consts::TAU,
                         speed: 0.6 + rand01(id, 10) * 0.8,
                     },
@@ -388,8 +406,8 @@ fn build_scene(
     // sharp specular streak under the lights (the round-tube cue), a faint warm tint + low alpha
     // let you see through, emissive keeps a glow.
     let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 0.62, 0.28, 0.18),
-        emissive: LinearRgba::rgb(0.8, 0.32, 0.08),
+        base_color: Color::srgba(1.0, 0.62, 0.28, 0.14),
+        emissive: LinearRgba::rgb(0.5, 0.22, 0.06),
         alpha_mode: AlphaMode::Blend,
         cull_mode: None,
         perceptual_roughness: 0.06,
@@ -405,7 +423,7 @@ fn build_scene(
         seed: 0x00E6,
     };
     let add_tube = |commands: &mut Commands, meshes: &mut Assets<Mesh>, curve: &[Vec3]| {
-        let radii = connection_radii(curve.len(), 0.32);
+        let radii = connection_radii(curve.len(), 0.13);
         commands.spawn((
             Mesh3d(meshes.add(tube_mesh(curve, &radii, 8))),
             MeshMaterial3d(edge_mat.clone()),
@@ -430,48 +448,30 @@ fn build_scene(
         }
     }
 
-    for e in &snap.edges {
-        if e.weight < EDGE_WEIGHT_MIN {
-            continue;
-        }
-        let (Some(&a), Some(&b)) = (pos.get(&e.source_id), pos.get(&e.target_id)) else {
-            continue;
-        };
-        let (Some(&si), Some(&di)) = (index.get(&e.source_id), index.get(&e.target_id)) else {
-            continue;
-        };
-        let net_a = kind_of.get(&e.source_id).map(|k| k.network());
-        let net_b = kind_of.get(&e.target_id).map(|k| k.network());
-        if net_a != net_b {
-            continue;
-        }
-        let curve = edge_curve(a, b, e.weight as f32, &curve_params, hash_u64(&e.id));
-        add_tube(commands, meshes, &curve);
-        wire(&mut graph, si, di, &curve, e.directed);
-    }
-
-    // The Research network's native links all point across to clients/ledger (dropped above), so
-    // it arrives as loose dust. Weave a proximity web — each note to its 2 nearest neighbours — so
-    // it reads as its own constellation. (Real Add-Research notes link to topic hubs over time.)
-    if let Some(rids) = groups.get(&Network::Research) {
-        let ridx: Vec<usize> = rids.iter().map(|id| index[id]).collect();
-        let rpos: Vec<Vec3> = rids.iter().map(|id| pos[id]).collect();
+    // Organic mesh: connect each neuron to its few nearest neighbours within its own network. This
+    // gives the delicate, evenly-woven web of the reference images (and makes both networks read
+    // alike) instead of relying on the sparse, mostly-cross-domain data links. Firing propagates
+    // along this mesh. (Semantic links return in the per-client zoom-in.)
+    const NEIGHBOURS: usize = 3;
+    for ids in groups.values() {
+        let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
+        let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
-        for i in 0..rpos.len() {
-            let mut nearest: Vec<(f32, usize)> = (0..rpos.len())
+        for i in 0..ps.len() {
+            let mut nearest: Vec<(f32, usize)> = (0..ps.len())
                 .filter(|&j| j != i)
-                .map(|j| (rpos[i].distance_squared(rpos[j]), j))
+                .map(|j| (ps[i].distance_squared(ps[j]), j))
                 .collect();
             nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
-            for &(_, j) in nearest.iter().take(2) {
+            for &(_, j) in nearest.iter().take(NEIGHBOURS) {
                 let key = (i.min(j), i.max(j));
                 if !linked.insert(key) {
                     continue;
                 }
-                let seed = (key.0 as u64) << 20 ^ key.1 as u64;
-                let curve = edge_curve(rpos[i], rpos[j], 0.7, &curve_params, seed);
+                let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
+                let curve = edge_curve(ps[i], ps[j], 0.7, &curve_params, seed);
                 add_tube(commands, meshes, &curve);
-                wire(&mut graph, ridx[i], ridx[j], &curve, false);
+                wire(&mut graph, idxs[i], idxs[j], &curve, false);
             }
         }
     }
@@ -479,7 +479,7 @@ fn build_scene(
     // Pulse asset shared by all propagation pulses (spawned at runtime when neurons fire).
     let pulse_material = materials.add(StandardMaterial {
         base_color: Color::BLACK,
-        emissive: LinearRgba::rgb(9.0, 5.0, 1.6),
+        emissive: LinearRgba::rgb(6.0, 3.3, 1.2),
         alpha_mode: AlphaMode::Add,
         ..default()
     });

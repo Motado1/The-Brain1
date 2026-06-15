@@ -14,7 +14,7 @@ impl Network {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Network::Business => "Business — Clients & Ledger",
+            Network::Business => "Business — Clients",
             Network::Research => "Research — Knowledge",
         }
     }
@@ -23,15 +23,16 @@ impl Network {
     pub(crate) fn center(self) -> Vec3 {
         match self {
             Network::Business => Vec3::ZERO,
-            Network::Research => Vec3::new(850.0, 130.0, -380.0),
+            Network::Research => Vec3::new(1100.0, 160.0, -480.0),
         }
     }
 
-    /// Ellipsoid extents the network's nodes fill.
+    /// Ellipsoid extents the network's nodes fill. Generous so neurons sit well apart (a spread-out
+    /// cluster, not a dense ball); both networks use a similar scale so they read alike.
     pub(crate) fn radii(self) -> Vec3 {
         match self {
-            Network::Business => Vec3::new(95.0, 72.0, 95.0),
-            Network::Research => Vec3::new(60.0, 48.0, 60.0),
+            Network::Business => Vec3::new(230.0, 175.0, 230.0),
+            Network::Research => Vec3::new(200.0, 150.0, 200.0),
         }
     }
 }
@@ -52,11 +53,11 @@ impl Kind {
         }
     }
 
-    /// Base emissive hue (pre activation/intensity) — warm amber / honey / red family.
+    /// Base emissive hue (pre activation/intensity) — warm amber / honey / red / gold family.
     pub(crate) fn base_color(self) -> (f32, f32, f32) {
         match self {
             Kind::Client => (1.0, 0.55, 0.13),    // honey amber
-            Kind::Ledger => (1.0, 0.22, 0.08),    // deep red
+            Kind::Ledger => (1.0, 0.22, 0.08),    // deep red (folded out of overview)
             Kind::Knowledge => (1.0, 0.78, 0.32), // warm gold
         }
     }
@@ -64,9 +65,9 @@ impl Kind {
     /// Base node radius — clients are the big "neurons".
     pub(crate) fn base_size(self) -> f32 {
         match self {
-            Kind::Client => 1.0,
+            Kind::Client => 1.3,
             Kind::Ledger => 0.45,
-            Kind::Knowledge => 0.6,
+            Kind::Knowledge => 0.95,
         }
     }
 
@@ -79,5 +80,3 @@ impl Kind {
         }
     }
 }
-
-pub(crate) const EDGE_WEIGHT_MIN: f64 = 0.55;

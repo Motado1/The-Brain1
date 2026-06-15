@@ -86,7 +86,7 @@ fn main() {
         )
         .add_plugins(EguiPlugin::default())
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
-        .insert_resource(ClearColor(Color::srgb(0.022, 0.012, 0.008)))
+        .insert_resource(ClearColor(Color::srgb(0.020, 0.011, 0.007)))
         .insert_resource(DbPath(db_path_from_args()))
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())

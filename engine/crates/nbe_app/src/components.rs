@@ -30,7 +30,8 @@ pub(crate) struct Billboard;
 
 #[derive(Component)]
 pub(crate) struct Breath {
-    pub(crate) base: f32,
+    /// Per-axis base scale (non-uniform → slightly misshapen, organic cell bodies, not round stars).
+    pub(crate) base: Vec3,
     pub(crate) phase: f32,
     pub(crate) speed: f32,
 }

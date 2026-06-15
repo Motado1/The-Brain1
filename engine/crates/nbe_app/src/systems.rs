@@ -95,8 +95,7 @@ pub(crate) fn orbit_camera(
 pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) {
     let t = time.elapsed_secs();
     for (b, mut transform) in &mut query {
-        let s = b.base * (1.0 + 0.12 * (t * b.speed + b.phase).sin());
-        transform.scale = Vec3::splat(s);
+        transform.scale = b.base * (1.0 + 0.1 * (t * b.speed + b.phase).sin());
     }
 }
 
@@ -124,7 +123,8 @@ pub(crate) fn fire_scheduler(
                 let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
                 for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
                     let edge = &graph.edges[e];
-                    let speed = 0.4 + lcg(&mut seed) * 0.4;
+                    // slow, calm drift down the filament (not a fast tracer).
+                    let speed = 0.12 + lcg(&mut seed) * 0.12;
                     commands.spawn((
                         Mesh3d(pulse.mesh.clone()),
                         MeshMaterial3d(pulse.material.clone()),
@@ -163,7 +163,7 @@ pub(crate) fn fire_render(
             );
         }
         if let Ok(mut tr) = transforms.get_mut(viz.halo) {
-            tr.scale = Vec3::splat(viz.base_radius * 5.5 * (1.0 + firing.intensity * HALO_SWELL));
+            tr.scale = Vec3::splat(viz.base_radius * 3.0 * (1.0 + firing.intensity * HALO_SWELL));
         }
     }
 }
@@ -195,7 +195,7 @@ pub(crate) fn advance_pulses(
         }
         let env = (tt * std::f32::consts::PI).sin().max(0.0);
         let glow = 0.2 + 0.8 * env;
-        tr.scale = Vec3::new(0.5 * glow, 0.5 * glow, 3.2 * glow);
+        tr.scale = Vec3::new(0.3 * glow, 0.3 * glow, 2.2 * glow);
         if pulse.t >= 1.0 {
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {
@@ -250,15 +250,15 @@ pub(crate) fn spawn_lights(mut commands: Commands) {
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(1.0, 0.82, 0.55),
-            illuminance: 4500.0,
+            illuminance: 4000.0,
             ..default()
         },
         Transform::from_xyz(1.0, 1.2, 0.6).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb(1.0, 0.45, 0.25),
-            illuminance: 2000.0,
+            color: Color::srgb(1.0, 0.5, 0.28),
+            illuminance: 1800.0,
             ..default()
         },
         Transform::from_xyz(-1.0, -0.5, -0.8).looking_at(Vec3::ZERO, Vec3::Y),
