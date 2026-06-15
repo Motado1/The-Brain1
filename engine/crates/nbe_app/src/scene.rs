@@ -396,10 +396,9 @@ fn build_scene(
             });
             index.insert(id.clone(), idx);
 
-            // Radiating dendrites — clients sprout the most, ledger entries none (keeps it clean).
+            // Radiating dendrites — clients and notes sprout identically (ledger folded out).
             let dcount = match kind {
-                Kind::Client => 5,
-                Kind::Knowledge => 4,
+                Kind::Client | Kind::Knowledge => 5,
                 Kind::Ledger => 0,
             };
             if dcount > 0 {

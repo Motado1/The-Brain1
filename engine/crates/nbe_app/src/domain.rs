@@ -53,21 +53,23 @@ impl Kind {
         }
     }
 
-    /// Base node radius — clients are the big "neurons".
+    /// Base node radius. Client and Knowledge are identical so the two networks render the same;
+    /// only the data (and a subtle hue) differs.
     pub(crate) fn base_size(self) -> f32 {
         match self {
             Kind::Client => 1.3,
             Kind::Ledger => 0.45,
-            Kind::Knowledge => 0.95,
+            Kind::Knowledge => 1.3,
         }
     }
 
-    /// How far out in the network's shell this kind tends to sit (0 = core, 1 = surface).
+    /// How far out in the network's shell this kind tends to sit (0 = core, 1 = surface). Client and
+    /// Knowledge match so both clusters fill their volume the same way.
     pub(crate) fn shell(self) -> f32 {
         match self {
             Kind::Client => 0.3,
             Kind::Ledger => 0.65,
-            Kind::Knowledge => 0.45,
+            Kind::Knowledge => 0.3,
         }
     }
 }
