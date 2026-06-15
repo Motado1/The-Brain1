@@ -44,12 +44,13 @@ impl Kind {
         }
     }
 
-    /// Base emissive hue (pre activation/intensity) — warm amber / honey / red / gold family.
+    /// Base emissive hue (pre activation/intensity). Business is warm amber; Research is a cool
+    /// blue-purple so the two clusters are instantly distinguishable.
     pub(crate) fn base_color(self) -> (f32, f32, f32) {
         match self {
             Kind::Client => (1.0, 0.55, 0.13),    // honey amber
             Kind::Ledger => (1.0, 0.22, 0.08),    // deep red (folded out of overview)
-            Kind::Knowledge => (1.0, 0.78, 0.32), // warm gold
+            Kind::Knowledge => (0.5, 0.42, 1.0),  // blue-purple
         }
     }
 

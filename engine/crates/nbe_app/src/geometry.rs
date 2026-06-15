@@ -78,7 +78,7 @@ pub(crate) fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
 /// hotspot as it activates. Kept dim so most neurons sit quiet and only the active few stand out.
 pub(crate) fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
     let (br, bg, bb) = kind.base_color();
-    let (hr, hg, hb) = (1.0, 0.92, 0.7); // white-hot honey core
+    let (hr, hg, hb) = (1.0, 1.0, 1.0); // neutral white-hot core (works for warm or cool hues)
     let t = activation.clamp(0.0, 1.0);
     let mix = |b: f32, h: f32| b + (h - b) * t * 0.7;
     let intensity = 0.3 + activation * 2.0;

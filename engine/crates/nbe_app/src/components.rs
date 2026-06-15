@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
+
+use crate::domain::Network;
 
 #[derive(Resource)]
 pub(crate) struct DbPath(pub(crate) String);
@@ -86,6 +90,7 @@ pub(crate) struct BrainGraph {
 
 pub(crate) struct GraphNode {
     pub(crate) entity: Entity,
+    pub(crate) network: Network,
     pub(crate) activation: f32,
     pub(crate) threshold: f32,
     pub(crate) out: Vec<usize>, // edge indices leaving this node
@@ -96,11 +101,12 @@ pub(crate) struct GraphEdge {
     pub(crate) target: usize,
 }
 
-/// Shared mesh/material for spawning propagation pulses at runtime.
+/// Shared mesh + per-network glow material for spawning propagation pulses at runtime, so a pulse
+/// matches the hue of the network it travels in.
 #[derive(Resource)]
 pub(crate) struct PulseAssets {
     pub(crate) mesh: Handle<Mesh>,
-    pub(crate) material: Handle<StandardMaterial>,
+    pub(crate) material: HashMap<Network, Handle<StandardMaterial>>,
 }
 
 /// Tags every entity the scene builder spawns (nodes, edges, sparks) so a rebuild can despawn the

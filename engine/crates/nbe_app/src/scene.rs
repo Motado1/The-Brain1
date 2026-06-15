@@ -274,29 +274,62 @@ fn build_scene(
         (Kind::Ledger, halo_for(Kind::Ledger, materials)),
         (Kind::Knowledge, halo_for(Kind::Knowledge, materials)),
     ];
-    // Warm translucent glass for the dendrite filaments — a faint amber haze.
-    let dendrite_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 0.55, 0.22, 0.12),
-        emissive: LinearRgba::rgb(0.34, 0.12, 0.03),
-        alpha_mode: AlphaMode::Blend,
-        cull_mode: None,
-        perceptual_roughness: 0.1,
-        metallic: 0.0,
-        ..default()
-    });
-
-    // Shared translucent "membrane": the neuron's body. Faintly warm and see-through, so the
-    // bright core spawned *inside* it reads as light glowing from within — not the node being a
-    // bare light source. Low emissive keeps the body visible without making it a lamp.
-    let membrane_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(0.55, 0.3, 0.13, 0.22),
-        emissive: LinearRgba::rgb(0.14, 0.06, 0.018),
-        alpha_mode: AlphaMode::Blend,
-        cull_mode: None,
-        perceptual_roughness: 0.4,
-        metallic: 0.0,
-        ..default()
-    });
+    // Per-network theme: warm amber for Business, cool blue-purple for Research. Every accent
+    // material (the translucent cell membrane, the filament edges, the dendrites, and the
+    // travelling pulses) is tinted from this single hue, so the whole cluster reads in one colour.
+    // Only the node cores carry the per-kind base colour. The membrane is see-through so the bright
+    // core inside reads as light glowing from within, not the node being a bare light source.
+    let theme_rgb = |net: Network| match net {
+        Network::Business => (1.0, 0.55, 0.15),
+        Network::Research => (0.5, 0.42, 1.0),
+    };
+    type ThemeMats = (
+        Handle<StandardMaterial>, // membrane
+        Handle<StandardMaterial>, // edge
+        Handle<StandardMaterial>, // dendrite
+        Handle<StandardMaterial>, // pulse
+    );
+    let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
+    for net in Network::ALL {
+        let (r, g, b) = theme_rgb(net);
+        let membrane = materials.add(StandardMaterial {
+            base_color: Color::srgba(r * 0.5, g * 0.5, b * 0.5, 0.22),
+            emissive: LinearRgba::rgb(r * 0.13, g * 0.13, b * 0.13),
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            perceptual_roughness: 0.4,
+            metallic: 0.0,
+            ..default()
+        });
+        let edge = materials.add(StandardMaterial {
+            base_color: Color::srgba(r, g, b, 0.14),
+            emissive: LinearRgba::rgb(r * 0.45, g * 0.45, b * 0.45),
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            perceptual_roughness: 0.06,
+            metallic: 0.0,
+            reflectance: 0.7,
+            ..default()
+        });
+        let dendrite = materials.add(StandardMaterial {
+            base_color: Color::srgba(r, g, b, 0.12),
+            emissive: LinearRgba::rgb(r * 0.3, g * 0.3, b * 0.3),
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            perceptual_roughness: 0.1,
+            metallic: 0.0,
+            ..default()
+        });
+        let pulse = materials.add(StandardMaterial {
+            base_color: Color::LinearRgba(LinearRgba::new(r * 2.6, g * 2.6, b * 2.6, 1.0)),
+            base_color_texture: Some(glow.clone()),
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            cull_mode: None,
+            ..default()
+        });
+        themes.insert(net, (membrane, edge, dendrite, pulse));
+    }
 
     // Per-entity firing threshold (defaults 0.5).
     let threshold_of: HashMap<&str, f32> = snap
@@ -356,10 +389,11 @@ fn build_scene(
             let speed = 0.6 + rand01(id, 10) * 0.8;
             let idx = graph.nodes.len();
             // Translucent body (carries the firing state + drives the inner core).
+            let membrane_mat = themes[&network].0.clone();
             let node = commands
                 .spawn((
                     Mesh3d(sphere.clone()),
-                    MeshMaterial3d(membrane_mat.clone()),
+                    MeshMaterial3d(membrane_mat),
                     Transform { translation: p, rotation: tilt, scale: shape },
                     Breath { base: shape, phase, speed },
                     Neuron(idx),
@@ -390,6 +424,7 @@ fn build_scene(
 
             graph.nodes.push(GraphNode {
                 entity: node,
+                network,
                 activation: act,
                 threshold: thr,
                 out: Vec::new(),
@@ -404,7 +439,7 @@ fn build_scene(
             if dcount > 0 {
                 commands.spawn((
                     Mesh3d(meshes.add(dendrite_mesh(p, dcount, r, hash_u64(id)))),
-                    MeshMaterial3d(dendrite_mat.clone()),
+                    MeshMaterial3d(themes[&network].2.clone()),
                     Transform::default(),
                     SceneItem,
                 ));
@@ -424,20 +459,8 @@ fn build_scene(
         }
     }
 
-    // Edges: tapered glass tubes (stronger ones only). Only ever drawn between two nodes in the
-    // *same* network — no lines stretch across the void. Clear amber glass: low roughness gives a
-    // sharp specular streak under the lights (the round-tube cue), a faint warm tint + low alpha
-    // let you see through, emissive keeps a glow.
-    let edge_mat = materials.add(StandardMaterial {
-        base_color: Color::srgba(1.0, 0.62, 0.28, 0.14),
-        emissive: LinearRgba::rgb(0.5, 0.22, 0.06),
-        alpha_mode: AlphaMode::Blend,
-        cull_mode: None,
-        perceptual_roughness: 0.06,
-        metallic: 0.0,
-        reflectance: 0.7,
-        ..default()
-    });
+    // Edges: thin tapered glass filaments, drawn only between two nodes in the same network and
+    // tinted with that network's theme colour. Low roughness + emissive give them a faint glow.
     let curve_params = CurveParams {
         samples: 14,
         bow: 0.1,
@@ -445,15 +468,16 @@ fn build_scene(
         jitter: 0.015,
         seed: 0x00E6,
     };
-    let add_tube = |commands: &mut Commands, meshes: &mut Assets<Mesh>, curve: &[Vec3]| {
-        let radii = connection_radii(curve.len(), 0.13);
-        commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(curve, &radii, 8))),
-            MeshMaterial3d(edge_mat.clone()),
-            Transform::default(),
-            SceneItem,
-        ));
-    };
+    let add_tube =
+        |commands: &mut Commands, meshes: &mut Assets<Mesh>, mat: Handle<StandardMaterial>, curve: &[Vec3]| {
+            let radii = connection_radii(curve.len(), 0.13);
+            commands.spawn((
+                Mesh3d(meshes.add(tube_mesh(curve, &radii, 8))),
+                MeshMaterial3d(mat),
+                Transform::default(),
+                SceneItem,
+            ));
+        };
     // Wire a path into the graph as directed src→dst (and the reverse if undirected) for propagation.
     fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], directed: bool) {
         let e1 = graph.edges.len();
@@ -476,7 +500,8 @@ fn build_scene(
     // alike) instead of relying on the sparse, mostly-cross-domain data links. Firing propagates
     // along this mesh. (Semantic links return in the per-client zoom-in.)
     const NEIGHBOURS: usize = 3;
-    for ids in groups.values() {
+    for (&network, ids) in &groups {
+        let edge_mat = themes[&network].1.clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
         let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
@@ -493,25 +518,20 @@ fn build_scene(
                 }
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
                 let curve = edge_curve(ps[i], ps[j], 0.7, &curve_params, seed);
-                add_tube(commands, meshes, &curve);
+                add_tube(commands, meshes, edge_mat.clone(), &curve);
                 wire(&mut graph, idxs[i], idxs[j], &curve, false);
             }
         }
     }
 
     // Pulse asset: a soft round glow sprite (radial-gradient billboard), not a hard shape — so a
-    // travelling signal reads as a gentle blob of light drifting along the filament.
-    let pulse_material = materials.add(StandardMaterial {
-        base_color: Color::LinearRgba(LinearRgba::new(2.6, 1.5, 0.6, 1.0)),
-        base_color_texture: Some(glow.clone()),
-        unlit: true,
-        alpha_mode: AlphaMode::Add,
-        cull_mode: None,
-        ..default()
-    });
+    // travelling signal reads as a gentle blob of light drifting along the filament. One per network
+    // so the pulse takes that network's hue.
+    let pulse_materials: HashMap<Network, Handle<StandardMaterial>> =
+        themes.iter().map(|(&net, mats)| (net, mats.3.clone())).collect();
     commands.insert_resource(PulseAssets {
         mesh: halo_quad.clone(),
-        material: pulse_material,
+        material: pulse_materials,
     });
 
     // Ambient dust motes drifting in each network's volume (the bokeh specks).

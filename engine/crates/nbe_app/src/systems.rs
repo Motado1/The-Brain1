@@ -119,15 +119,16 @@ pub(crate) fn fire_scheduler(
         if firing.accumulator >= node.threshold {
             firing.accumulator = 0.0;
             firing.intensity = 1.0;
-            if let Some(pulse) = &pulse {
+            if let Some(pmat) = pulse.as_ref().and_then(|p| p.material.get(&node.network).cloned()) {
+                let mesh = pulse.as_ref().unwrap().mesh.clone();
                 let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
                 for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
                     let edge = &graph.edges[e];
                     // slow, calm drift down the filament (not a fast tracer).
                     let speed = 0.12 + lcg(&mut seed) * 0.12;
                     commands.spawn((
-                        Mesh3d(pulse.mesh.clone()),
-                        MeshMaterial3d(pulse.material.clone()),
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(pmat.clone()),
                         Transform::from_translation(edge.path[0]),
                         Pulse {
                             edge: e,
