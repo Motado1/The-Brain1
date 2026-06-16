@@ -60,8 +60,26 @@ iteration).
   decays); firing **propagates** pulses of light along outgoing edges into neighbours, which can
   re-fire — capped/attenuated cascades that fade; **ambient shimmer + drifting dust motes** keep it
   alive at rest. Activation is **recomputed from facets on load** so liveliness tracks real urgency.
-  Tunables are `const`s at the top of `nbe_app/src/main.rs` (FIRE_BASE/FIRE_NEED/FIRE_DECAY/
-  FLARE_GAIN/PULSE_ENERGY/…). *Compiles + clippy clean; needs a desktop run to tune the look.*
+  Tunables are `const`s in `nbe_app/src/tuning.rs` (FIRE_BASE/FIRE_NEED/FIRE_DECAY/FLARE_GAIN/
+  PULSE_ENERGY/QUEUE_CAP/MOTES_PER_NETWORK).
+  **The renderer is now split into modules** (`nbe_app/src/{main,components,domain,tuning,nav,
+  geometry,scene,ui,systems,panel}.rs`); `ops.rs` likewise split into `ops/{mod,clients,research,
+  pt,reports,admin}.rs` — pure reorganisation, all paths preserved.
+  **Visual style pass (from desktop screenshots + reference images):** calmer/slower firing + soft
+  glow (not stars); networks spread out and **sized to node count** (`density_radii`, radius ∝ n^⅓)
+  so a 35-node and 350-node cluster read identically; **per-network theming** — Business warm amber,
+  Research blue-purple — applied to membranes/edges/dendrites/pulses; ledger folded into clients so
+  Business ≈ one neuron per client; edges are a **nearest-neighbour mesh** (not raw data links) that
+  **grows out of the somas** (soma-surface start + `axon_radii` flare); neurons are a translucent
+  **membrane + inner glowing core** (light from inside); pulses are soft round glow billboards.
+  **Pulse traffic rules (A1):** `EdgeTraffic` resource — one channel per connection, single
+  occupancy + directional mutex + capped queue, so the flow stays clean.
+  **Camera zoom fix:** scroll now snaps the pivot onto the node under the cursor and shrinks the
+  orbit radius (smooth fly-to), so zoom-then-rotate orbits what you zoomed into. Smooth DoF focus
+  pull; dim background micro-fibers for depth.
+  **Interaction foundation (B1/B2):** click a neuron → `pick_node` cone-raycast selects it →
+  floating **detail panel** shows its `ops::show` view; hovered/selected neurons highlight in 3D.
+  *All compiles + clippy clean; needs a desktop run to verify/tune the look + interaction feel.*
 
 > **Direction:** the GUI is becoming the primary interface (the owner avoids the terminal). Plan:
 > every `ops` handler gets a button + live redraw; CLI stays as the tested engine/fallback. Phased UI
@@ -109,10 +127,17 @@ cargo run -p nbe_app --release -- --db demo.db
 First-time setup script: `engine/scripts/setup-windows.ps1` (installs Rust/MSVC/Perl/NASM, builds).
 
 ## NEXT STEPS (in priority order)
-0. **Verify + tune the "alive" layer at the desktop** (just built, unrun): confirm firing flares,
-   propagation cascades, and ambient motes read well; tune the `const`s (firing base vs need
-   balance, flare/decay, cascade energy). Then optionally surface a **Today** tab in the Business
-   panel reusing `ops::today`.
+0. **Verify the whole visual + interaction pass at the desktop** (lots built unrun): firing/flares,
+   per-network theming (amber Business / purple Research), soma-axon taper, glow-from-inside
+   neurons, pulse traffic flow, the **camera zoom fix**, and **click-to-select → detail panel +
+   hover/selection highlight**. Tune cone-pick threshold / click-vs-drag distance / panel placement
+   if needed. Knobs live in `tuning.rs` + `domain.rs theme_rgb`.
+0b. **Gemini design doc — phased plan agreed.** Done: A1 traffic rules, A2 background fibers, A3 DoF,
+   camera fix, B1/B2 picking + detail panel + highlight. **Next: Phase B3** (corner action hub +
+   hover ring of Sprout/Edit/Dissolve + wire create/link/delete to `ops`), then **Phase C shaders**
+   (Fresnel volumetric somas + UV-scroll in-fiber pulse waves — slow to iterate headless), then
+   **Phase D** life-event animations (neurogenesis/apoptosis; embers as entities, not a discard
+   shader). Skipped by owner: gaze auto-framing. Palette stays warm/purple (not Gemini's cyan).
 1. **Tune the brain overview** from the latest screenshot: hemisphere proportions, central
    fissure, optional brainstem stalk, hotspot amount, node density.
 2. **Zoom-in level-of-detail (the big one):** flying into a client makes it the large cell-body
