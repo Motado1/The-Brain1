@@ -254,8 +254,9 @@ fn build_scene(
         }
     }
 
-    // Spawn nodes + build the navigation registry. Nodes are pure additive light (billboards), so
-    // the only mesh we need here is the camera-facing quad.
+    // Spawn nodes + build the navigation registry. Each soma = a faint translucent structural
+    // sphere (real 3D form) under additive glow billboards (the light).
+    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
@@ -415,6 +416,27 @@ fn build_scene(
                     SceneItem,
                 ))
                 .id();
+            // Faint translucent cell body — gives the soma real 3D structure under the glow. It's
+            // lit (neutral, see-through), not self-glowing, so the additive nucleus reads as light
+            // *within* a physical form rather than a bare sprite.
+            let shape = Vec3::new(
+                r * (0.8 + rand01(id, 21) * 0.45),
+                r * (0.8 + rand01(id, 22) * 0.45),
+                r * (0.8 + rand01(id, 23) * 0.45),
+            );
+            let tilt = Quat::from_euler(
+                EulerRot::XYZ,
+                rand_unit(id, 24) * std::f32::consts::PI,
+                rand_unit(id, 25) * std::f32::consts::PI,
+                rand_unit(id, 26) * std::f32::consts::PI,
+            );
+            commands.spawn((
+                Mesh3d(sphere.clone()),
+                MeshMaterial3d(themes[&network].0.clone()),
+                Transform { translation: p, rotation: tilt, scale: shape },
+                Breath { base: shape, phase, speed },
+                SceneItem,
+            ));
 
             graph.nodes.push(GraphNode {
                 entity: node,
