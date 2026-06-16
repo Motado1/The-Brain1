@@ -49,8 +49,8 @@ pub(crate) fn orbit_camera(
     if keys.just_pressed(KeyCode::Escape) {
         target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
     }
-    // Manual interaction cancels an active fly-to.
-    if drag != Vec2::ZERO || scroll != 0.0 {
+    // Manual rotate/pan cancels an active fly-to. (Scroll instead *drives* a smooth zoom below.)
+    if drag != Vec2::ZERO {
         target.0 = None;
     }
 
@@ -79,17 +79,48 @@ pub(crate) fn orbit_camera(
             orbit.focus += (-right * drag.x + up * drag.y) * (radius * 0.0015);
         }
         if scroll != 0.0 {
-            // Dolly toward the point under the cursor: fly along the ray through the mouse, so
-            // scrolling targets where you're looking (falls back to screen-center if no cursor).
-            let dir = cursor
+            // Zoom = pull the pivot onto whatever's under the cursor *and* shrink the orbit radius,
+            // so after zooming in, rotation orbits the thing you zoomed into (not a stale pivot).
+            // We set a fly-to target and let the lerp above ease it smoothly.
+            let (cur_focus, cur_radius) = target.0.unwrap_or((orbit.focus, orbit.radius));
+            let aim = cursor
                 .and_then(|c| camera.viewport_to_world(cam_global, c).ok())
-                .map(|ray| ray.direction.as_vec3())
-                .unwrap_or(forward);
-            orbit.focus += dir * scroll * (radius * 0.15 + 4.0);
+                .map(|ray| aim_point(&registry, ray.origin, ray.direction.as_vec3(), cur_radius))
+                .unwrap_or(cur_focus + forward * cur_radius);
+            let new_radius = (cur_radius * (1.0 - scroll * 0.18)).clamp(2.0, 6000.0);
+            // Zooming in pulls the pivot toward the aim point; zooming out just widens the orbit.
+            let new_focus = if scroll > 0.0 {
+                cur_focus.lerp(aim, (scroll * 0.35).min(0.7))
+            } else {
+                cur_focus
+            };
+            target.0 = Some((new_focus, new_radius));
         }
         orbit.radius = orbit.radius.clamp(1.0, 6000.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
     }
+}
+
+/// The node nearest the cursor ray (within a thin cone), else a point along the ray at `fallback`.
+/// Lets zoom pull the pivot onto whatever you're pointing at so rotation orbits it afterward.
+fn aim_point(registry: &NodeRegistry, origin: Vec3, dir: Vec3, fallback: f32) -> Vec3 {
+    let mut best: Option<(f32, Vec3)> = None;
+    for n in &registry.nodes {
+        let to = n.pos - origin;
+        let along = to.dot(dir);
+        if along <= 0.0 {
+            continue;
+        }
+        let perp = (to - dir * along).length();
+        let nearer = match best {
+            Some((a, _)) => along < a,
+            None => true,
+        };
+        if perp < along * 0.05 + 3.0 && nearer {
+            best = Some((along, n.pos));
+        }
+    }
+    best.map(|(_, p)| p).unwrap_or(origin + dir * fallback)
 }
 
 pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) {
