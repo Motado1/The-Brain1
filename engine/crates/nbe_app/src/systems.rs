@@ -384,8 +384,9 @@ pub(crate) fn update_dof(time: Res<Time>, mut query: Query<(&OrbitCamera, &mut D
 /// emissive) but give the glass tubes a specular streak so they read as round 3D tubes.
 pub(crate) fn spawn_lights(mut commands: Commands) {
     commands.spawn((
+        // Neutral key/fill so the tissue's colour comes from the cores it's lit by, not the light.
         DirectionalLight {
-            color: Color::srgb(1.0, 0.82, 0.55),
+            color: Color::srgb(0.92, 0.95, 1.0),
             illuminance: 4000.0,
             ..default()
         },
@@ -393,7 +394,7 @@ pub(crate) fn spawn_lights(mut commands: Commands) {
     ));
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb(1.0, 0.5, 0.28),
+            color: Color::srgb(0.78, 0.83, 0.95),
             illuminance: 1800.0,
             ..default()
         },

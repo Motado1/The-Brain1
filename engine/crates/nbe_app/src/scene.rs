@@ -53,10 +53,10 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
             aperture_f_stops: 2.8,
             ..default()
         },
-        // A touch of warm ambient so the glass tubes aren't pure black where unlit.
+        // Neutral ambient so unlit tissue stays colour-neutral (hue comes from the cores' glow).
         AmbientLight {
-            color: Color::srgb(1.0, 0.7, 0.45),
-            brightness: 45.0,
+            color: Color::srgb(0.72, 0.76, 0.85),
+            brightness: 50.0,
             ..default()
         },
         Transform::from_translation(cam.eye()).looking_at(cam.focus, Vec3::Y),
@@ -293,9 +293,13 @@ fn build_scene(
     let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
+        // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
+        // colour from the LIGHT — the bright cores blooming through/over it and the scene lights —
+        // rather than glowing its own hue. Only a faint theme whisper so dim, far-from-core tissue
+        // still hints at its network. (The cores, halos, pulses, and motes remain the real emitters.)
         let membrane = materials.add(StandardMaterial {
-            base_color: Color::srgba(r * 0.5, g * 0.5, b * 0.5, 0.22),
-            emissive: LinearRgba::rgb(r * 0.13, g * 0.13, b * 0.13),
+            base_color: Color::srgba(0.5, 0.48, 0.46, 0.22),
+            emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             perceptual_roughness: 0.4,
@@ -303,8 +307,8 @@ fn build_scene(
             ..default()
         });
         let edge = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.14),
-            emissive: LinearRgba::rgb(r * 0.45, g * 0.45, b * 0.45),
+            base_color: Color::srgba(0.6, 0.58, 0.55, 0.14),
+            emissive: LinearRgba::rgb(r * 0.05, g * 0.05, b * 0.05),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             perceptual_roughness: 0.06,
@@ -313,8 +317,8 @@ fn build_scene(
             ..default()
         });
         let dendrite = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.12),
-            emissive: LinearRgba::rgb(r * 0.3, g * 0.3, b * 0.3),
+            base_color: Color::srgba(0.6, 0.58, 0.55, 0.12),
+            emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             perceptual_roughness: 0.1,
@@ -609,9 +613,10 @@ fn build_scene(
             continue;
         };
         let (tr, tg, tb) = theme_rgb(network);
+        // Neutral, near-unlit background tissue — only a whisper of theme hue.
         let fiber_mat = materials.add(StandardMaterial {
-            base_color: Color::srgba(tr, tg, tb, 0.05),
-            emissive: LinearRgba::rgb(tr * 0.12, tg * 0.12, tb * 0.12),
+            base_color: Color::srgba(0.5, 0.48, 0.46, 0.05),
+            emissive: LinearRgba::rgb(tr * 0.03, tg * 0.03, tb * 0.03),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             ..default()

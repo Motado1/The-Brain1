@@ -79,10 +79,22 @@ Phase B3 frontend (hover ring + action buttons) emits the events. (Backend: comm
 ## ✅ VERIFIED (move items here once confirmed good on the desktop)
 - Earlier renderer baseline (organic neurons, dendrites, two networks, sidebar fly-to, Add Research
   button) — confirmed via screenshots in earlier sessions.
+- **2026-06-16, from desktop screenshots:**
+  - **Camera zoom-to-cursor + rotate** — owner: "zooming and camera controls are much better." ✓
+  - **Glow-from-inside neurons** (membrane + core) — read as cells, not dots (see amber-core note). ✓
+  - **Soma→axon taper** — filaments visibly grow out of the cell bodies. ✓
+  - **Two networks, distinct hues** — Business warm amber, Research blue-purple, same structure. ✓
+  - **Spread-out networks + background depth fibers** — organic, not a dense ball. ✓
+  - *Still pending (needs interaction, not visible in a still): picking/selection/detail panel,
+    pulse-traffic flow, smooth DoF.*
 
 ---
 
 ## Notes / open tuning questions for the owner
 - Keep the warm-amber + blue-purple palette (cyan/teal suggestion was rejected).
-- Decide if the per-domain hue is enough, or networks should be even more identical.
+- **Amber cores blow out to white** more than purple (e.g. the bright central blob in the close-up).
+  The purple cluster keeps a visible membrane ring around the core; amber loses it at high
+  activation. Optional fix: lower the amber core intensity / soften the white-hot mix in
+  `geometry.rs node_emissive`, or theme the hotspot per-network instead of pure white. Owner happy
+  for now — revisit if desired.
 - Decide flare/waist strength on the soma→axon taper once seen.
