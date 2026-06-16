@@ -419,12 +419,12 @@ fn build_scene(
                     SceneItem,
                 ))
                 .id();
-            // The glowing core, sitting inside the body (breathes in sync, smaller).
+            // The glowing core, sitting inside the body (breathes in sync, a small soft nucleus).
             commands.spawn((
                 Mesh3d(sphere.clone()),
                 MeshMaterial3d(core_mat),
-                Transform { translation: p, rotation: tilt, scale: shape * 0.5 },
-                Breath { base: shape * 0.5, phase, speed },
+                Transform { translation: p, rotation: tilt, scale: shape * 0.42 },
+                Breath { base: shape * 0.42, phase, speed },
                 SceneItem,
             ));
 

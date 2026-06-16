@@ -80,10 +80,16 @@ pub(crate) fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
     let (br, bg, bb) = kind.base_color();
     let (hr, hg, hb) = (1.0, 1.0, 1.0); // white-hot core, applied gently so the hue is preserved
     let t = activation.clamp(0.0, 1.0);
-    // Only a little desaturation toward white as it activates — keeps amber blooming *orange* (not
-    // blown-out white) and leaves the saturated purple essentially as-is.
+    // Only a little desaturation toward white as it activates — keeps the hue.
     let mix = |b: f32, h: f32| b + (h - b) * t * 0.25;
-    let intensity = 0.3 + activation * 2.0;
+    // Warm hues carry two bright channels (R+G), so they bloom to white when too intense; cool
+    // purple is single-channel-dominant and stays saturated. Cap the warm cores lower so amber
+    // blooms a soft *orange* instead of a solid white blob, while purple keeps its current peak.
+    let peak = match kind {
+        Kind::Knowledge => 2.0,
+        Kind::Client | Kind::Ledger => 1.2,
+    };
+    let intensity = 0.25 + activation * peak;
     LinearRgba::rgb(
         mix(br, hr) * intensity,
         mix(bg, hg) * intensity,
