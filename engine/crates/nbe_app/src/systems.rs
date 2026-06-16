@@ -280,12 +280,14 @@ pub(crate) fn fire_render(
         };
         let twinkle = 1.0 + (t * 1.7 + viz.phase).sin() * viz.twinkle;
         let mul = (twinkle + firing.intensity * FLARE_GAIN) * glow_boost;
+        // The nucleus is an additive (unlit) billboard, so its brightness is its base_color.
         if let Some(m) = materials.get_mut(&viz.mat) {
-            m.emissive = LinearRgba::rgb(
+            m.base_color = Color::LinearRgba(LinearRgba::new(
                 viz.base_emissive.red * mul,
                 viz.base_emissive.green * mul,
                 viz.base_emissive.blue * mul,
-            );
+                1.0,
+            ));
         }
         if let Ok(mut tr) = transforms.get_mut(viz.halo) {
             let swell = viz.base_radius * 3.0 * (1.0 + firing.intensity * HALO_SWELL) * halo_boost;

@@ -254,8 +254,8 @@ fn build_scene(
         }
     }
 
-    // Spawn nodes + build the navigation registry.
-    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
+    // Spawn nodes + build the navigation registry. Nodes are pure additive light (billboards), so
+    // the only mesh we need here is the camera-facing quad.
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
@@ -355,14 +355,23 @@ fn build_scene(
             let r = kind.base_size() + act * 0.45;
             let p = pos[id];
             let base_emissive = node_emissive(kind, act);
-            // The bright core lives *inside* the translucent body — this is the light, flared by
-            // firing. It's smaller than the body so the glow reads as contained within the cell.
+            // Soma = a pure additive light volume (no solid mesh): a tight bright nucleus billboard
+            // plus a wide soft halo, so it reads as a glowing cloud (refs) instead of a hard sphere
+            // or a white blob. The nucleus material is the per-node light, flared by firing.
             let core_mat = materials.add(StandardMaterial {
-                base_color: Color::BLACK,
-                emissive: base_emissive,
+                base_color: Color::LinearRgba(LinearRgba::new(
+                    base_emissive.red,
+                    base_emissive.green,
+                    base_emissive.blue,
+                    1.0,
+                )),
+                base_color_texture: Some(glow.clone()),
+                unlit: true,
+                alpha_mode: AlphaMode::Add,
+                cull_mode: None,
                 ..default()
             });
-            // Soft glow halo (camera-facing) — spawned first so the neuron can flare it.
+            // Wide soft outer volume (camera-facing) — spawned first so the neuron can flare it.
             let halo_mat = halo_mats
                 .iter()
                 .find(|(k, _)| *k == kind)
@@ -372,36 +381,23 @@ fn build_scene(
                 .spawn((
                     Mesh3d(halo_quad.clone()),
                     MeshMaterial3d(halo_mat),
-                    Transform::from_translation(p).with_scale(Vec3::splat(r * 2.4)),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 3.5)),
                     Billboard,
                     SceneItem,
                 ))
                 .id();
 
-            // Slightly misshapen, organically-oriented cell body (non-uniform scale + a random
-            // tilt) so neurons read as clear blobs, not perfect round stars.
-            let shape = Vec3::new(
-                r * (0.78 + rand01(id, 21) * 0.5),
-                r * (0.78 + rand01(id, 22) * 0.5),
-                r * (0.78 + rand01(id, 23) * 0.5),
-            );
-            let tilt = Quat::from_euler(
-                EulerRot::XYZ,
-                rand_unit(id, 24) * std::f32::consts::PI,
-                rand_unit(id, 25) * std::f32::consts::PI,
-                rand_unit(id, 26) * std::f32::consts::PI,
-            );
             let phase = rand_unit(id, 9) * std::f32::consts::TAU;
             let speed = 0.6 + rand01(id, 10) * 0.8;
             let idx = graph.nodes.len();
-            // Translucent body (carries the firing state + drives the inner core).
-            let membrane_mat = themes[&network].0.clone();
+            // Bright nucleus billboard — carries the firing state and is the picking target.
             let node = commands
                 .spawn((
-                    Mesh3d(sphere.clone()),
-                    MeshMaterial3d(membrane_mat),
-                    Transform { translation: p, rotation: tilt, scale: shape },
-                    Breath { base: shape, phase, speed },
+                    Mesh3d(halo_quad.clone()),
+                    MeshMaterial3d(core_mat.clone()),
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 1.6)),
+                    Billboard,
+                    Breath { base: Vec3::splat(r * 1.6), phase, speed },
                     Neuron(idx),
                     // Random initial charge so neurons don't all fire in lockstep.
                     Firing {
@@ -412,21 +408,13 @@ fn build_scene(
                         base_emissive,
                         base_radius: r,
                         halo,
-                        mat: core_mat.clone(),
+                        mat: core_mat,
                         phase: rand_unit(id, 8) * std::f32::consts::TAU,
                         twinkle: 0.08 + rand01(id, 15) * 0.08,
                     },
                     SceneItem,
                 ))
                 .id();
-            // The glowing core, sitting inside the body (breathes in sync, a small soft nucleus).
-            commands.spawn((
-                Mesh3d(sphere.clone()),
-                MeshMaterial3d(core_mat),
-                Transform { translation: p, rotation: tilt, scale: shape * 0.42 },
-                Breath { base: shape * 0.42, phase, speed },
-                SceneItem,
-            ));
 
             graph.nodes.push(GraphNode {
                 entity: node,
@@ -578,7 +566,7 @@ fn build_scene(
     let mut ms = 0xD1B5_4A32u64;
     for network in Network::ALL {
         let center = network.center();
-        let radius = net_radii.get(&network).map(|r| r.max_element()).unwrap_or(120.0) * 1.3;
+        let radius = net_radii.get(&network).map(|r| r.max_element()).unwrap_or(120.0) * 1.6;
         for _ in 0..MOTES_PER_NETWORK {
             let dir = Vec3::new(
                 lcg(&mut ms) - 0.5,
@@ -591,7 +579,9 @@ fn build_scene(
                 lcg(&mut ms) - 0.5,
                 lcg(&mut ms) - 0.5,
             ) * 2.0;
-            let sz = 0.6 + lcg(&mut ms) * 1.2;
+            // Mostly tiny specks with an occasional larger bokeh orb (cubic falloff).
+            let l = lcg(&mut ms);
+            let sz = 0.2 + l * l * l * 2.8;
             commands.spawn((
                 Mesh3d(halo_quad.clone()),
                 MeshMaterial3d(mote_mat.clone()),
