@@ -153,6 +153,7 @@ pub(crate) fn pick_node(
         .viewport_to_world(cam_global, cursor)
         .ok()
         .and_then(|ray| pick_index(&registry, ray.origin, ray.direction.as_vec3()));
+    picker.hovered_entity = picker.hovered.map(|i| registry.nodes[i].entity);
 
     if ui.over {
         picker.press = None;
@@ -166,6 +167,7 @@ pub(crate) fn pick_node(
             // Only a click (not a drag) selects — drags are camera orbit.
             if press.distance(cursor) < 5.0 {
                 picker.selected = picker.hovered;
+                picker.selected_entity = picker.hovered_entity;
                 picker.detail = match picker.selected {
                     Some(i) => fetch_detail(&db_path.0, &registry.nodes[i].id),
                     None => String::new(),
@@ -258,16 +260,25 @@ pub(crate) fn fire_scheduler(
 }
 
 /// Render firing: flare the neuron's emissive + swell its halo, plus a constant gentle twinkle.
+/// The hovered/selected neuron gets an extra steady boost so you can see what you're pointing at.
 pub(crate) fn fire_render(
     time: Res<Time>,
+    picker: Res<Picker>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    q: Query<(&Firing, &NodeViz)>,
+    q: Query<(Entity, &Firing, &NodeViz)>,
     mut transforms: Query<&mut Transform>,
 ) {
     let t = time.elapsed_secs();
-    for (firing, viz) in &q {
+    for (entity, firing, viz) in &q {
+        let (glow_boost, halo_boost) = if picker.selected_entity == Some(entity) {
+            (2.4, 1.6)
+        } else if picker.hovered_entity == Some(entity) {
+            (1.5, 1.25)
+        } else {
+            (1.0, 1.0)
+        };
         let twinkle = 1.0 + (t * 1.7 + viz.phase).sin() * viz.twinkle;
-        let mul = twinkle + firing.intensity * FLARE_GAIN;
+        let mul = (twinkle + firing.intensity * FLARE_GAIN) * glow_boost;
         if let Some(m) = materials.get_mut(&viz.mat) {
             m.emissive = LinearRgba::rgb(
                 viz.base_emissive.red * mul,
@@ -276,7 +287,8 @@ pub(crate) fn fire_render(
             );
         }
         if let Ok(mut tr) = transforms.get_mut(viz.halo) {
-            tr.scale = Vec3::splat(viz.base_radius * 3.0 * (1.0 + firing.intensity * HALO_SWELL));
+            let swell = viz.base_radius * 3.0 * (1.0 + firing.intensity * HALO_SWELL) * halo_boost;
+            tr.scale = Vec3::splat(swell);
         }
     }
 }

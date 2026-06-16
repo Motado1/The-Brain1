@@ -7,6 +7,8 @@ use crate::domain::*;
 pub(crate) struct NodeInfo {
     /// Full DB entity id (for detail lookup via `ops::show`).
     pub(crate) id: String,
+    /// The neuron's body entity (for hover/selection highlight).
+    pub(crate) entity: Entity,
     pub(crate) name: String,
     pub(crate) kind: Kind,
     pub(crate) network: Network,
@@ -23,6 +25,9 @@ pub(crate) struct NodeInfo {
 pub(crate) struct Picker {
     pub(crate) hovered: Option<usize>,
     pub(crate) selected: Option<usize>,
+    /// Entities mirroring the indices above, for cheap highlight comparison in the render system.
+    pub(crate) hovered_entity: Option<Entity>,
+    pub(crate) selected_entity: Option<Entity>,
     /// Cursor position when the left button went down — to tell a click from an orbit-drag.
     pub(crate) press: Option<Vec2>,
     /// Cached `ops::show` output for the selected node.
