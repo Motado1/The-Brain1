@@ -21,3 +21,11 @@ pub(crate) const MOTES_PER_NETWORK: usize = 360;
 /// How many pulses may queue on a single busy connection before further ones are dropped — keeps
 /// the flow deliberate without letting backlogs build.
 pub(crate) const QUEUE_CAP: usize = 2;
+
+// ---- soma membrane (Fresnel rim) shader -------------------------------------------------
+/// Rim sharpness (higher = thinner cell-wall line).
+pub(crate) const RIM_POWER: f32 = 2.5;
+/// Rim glow brightness.
+pub(crate) const RIM_INTENSITY: f32 = 1.6;
+/// Rim opacity (centre stays clear).
+pub(crate) const RIM_ALPHA: f32 = 0.85;

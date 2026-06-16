@@ -18,6 +18,7 @@ mod interaction;
 mod nav;
 mod panel;
 mod scene;
+mod shaders;
 mod systems;
 mod tuning;
 mod ui;
@@ -65,8 +66,8 @@ fn main() {
         None
     };
 
-    App::new()
-        .add_plugins(
+    let mut app = App::new();
+    app.add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -135,6 +136,9 @@ fn main() {
                 on_edit,
                 on_dissolve,
             ),
-        )
-        .run();
+        );
+
+    // Custom WGSL materials (soma Fresnel rim, …) — registered after DefaultPlugins.
+    shaders::register(&mut app);
+    app.run();
 }

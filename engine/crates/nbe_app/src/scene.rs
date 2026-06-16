@@ -17,6 +17,7 @@ use crate::geometry::*;
 use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
+use crate::shaders::SomaMaterial;
 use crate::tuning::*;
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
@@ -79,10 +80,12 @@ fn recompute_activations(path: &str) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut somas: ResMut<Assets<SomaMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -91,6 +94,7 @@ pub(crate) fn load_graph(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        somas.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -107,6 +111,7 @@ pub(crate) fn apply_reload(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut somas: ResMut<Assets<SomaMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -123,6 +128,7 @@ pub(crate) fn apply_reload(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        somas.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -132,10 +138,12 @@ pub(crate) fn apply_reload(
 /// Load the DB and spawn both networks (nodes, edges, sparks), all tagged `SceneItem`. Returns the
 /// framing bounds `(center, radius)` of the **Business** network for the initial camera, or `None`
 /// if the DB is missing/empty.
+#[allow(clippy::too_many_arguments)]
 fn build_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    somas: &mut Assets<SomaMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
     path: &str,
@@ -292,8 +300,17 @@ fn build_scene(
         Handle<StandardMaterial>, // pulse
     );
     let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
+    // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader).
+    let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
+        soma_of.insert(
+            net,
+            somas.add(SomaMaterial {
+                rim_color: LinearRgba::new(r, g, b, 1.0),
+                params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
+            }),
+        );
         // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
         // colour from the LIGHT — the bright cores blooming through/over it and the scene lights —
         // rather than glowing its own hue. Only a faint theme whisper so dim, far-from-core tissue
@@ -420,9 +437,8 @@ fn build_scene(
                     SceneItem,
                 ))
                 .id();
-            // Faint translucent cell body — gives the soma real 3D structure under the glow. It's
-            // lit (neutral, see-through), not self-glowing, so the additive nucleus reads as light
-            // *within* a physical form rather than a bare sprite.
+            // Translucent cell body via the Fresnel "cell-wall" shader: glowing rim, clear centre —
+            // gives the soma real 3D structure while the additive nucleus reads as light within it.
             let shape = Vec3::new(
                 r * (0.8 + rand01(id, 21) * 0.45),
                 r * (0.8 + rand01(id, 22) * 0.45),
@@ -436,7 +452,7 @@ fn build_scene(
             );
             commands.spawn((
                 Mesh3d(sphere.clone()),
-                MeshMaterial3d(themes[&network].0.clone()),
+                MeshMaterial3d(soma_of[&network].clone()),
                 Transform { translation: p, rotation: tilt, scale: shape },
                 Breath { base: shape, phase, speed },
                 SceneItem,
