@@ -447,6 +447,7 @@ fn build_scene(
                 ));
             }
             registry.nodes.push(NodeInfo {
+                id: id.clone(),
                 name: name_of.get(id).cloned().unwrap_or_else(|| id[..8].to_string()),
                 kind,
                 network,

@@ -101,11 +101,10 @@ pub(crate) fn orbit_camera(
     }
 }
 
-/// The node nearest the cursor ray (within a thin cone), else a point along the ray at `fallback`.
-/// Lets zoom pull the pivot onto whatever you're pointing at so rotation orbits it afterward.
-fn aim_point(registry: &NodeRegistry, origin: Vec3, dir: Vec3, fallback: f32) -> Vec3 {
-    let mut best: Option<(f32, Vec3)> = None;
-    for n in &registry.nodes {
+/// Index of the node nearest the cursor ray, within a thin cone (closest along the ray wins).
+fn pick_index(registry: &NodeRegistry, origin: Vec3, dir: Vec3) -> Option<usize> {
+    let mut best: Option<(f32, usize)> = None;
+    for (i, n) in registry.nodes.iter().enumerate() {
         let to = n.pos - origin;
         let along = to.dot(dir);
         if along <= 0.0 {
@@ -117,10 +116,73 @@ fn aim_point(registry: &NodeRegistry, origin: Vec3, dir: Vec3, fallback: f32) ->
             None => true,
         };
         if perp < along * 0.05 + 3.0 && nearer {
-            best = Some((along, n.pos));
+            best = Some((along, i));
         }
     }
-    best.map(|(_, p)| p).unwrap_or(origin + dir * fallback)
+    best.map(|(_, i)| i)
+}
+
+/// The node nearest the cursor ray, else a point along the ray at `fallback`. Lets zoom pull the
+/// pivot onto whatever you're pointing at so rotation orbits it afterward.
+fn aim_point(registry: &NodeRegistry, origin: Vec3, dir: Vec3, fallback: f32) -> Vec3 {
+    pick_index(registry, origin, dir)
+        .map(|i| registry.nodes[i].pos)
+        .unwrap_or(origin + dir * fallback)
+}
+
+/// Cursor picking: track the node under the pointer, and on a stationary left-click (not an
+/// orbit-drag) select it and cache its detail text for the panel.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn pick_node(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cam_q: Query<(&Camera, &GlobalTransform)>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    registry: Res<NodeRegistry>,
+    ui: Res<UiPointer>,
+    db_path: Res<DbPath>,
+    mut picker: ResMut<Picker>,
+) {
+    let (Ok(window), Ok((camera, cam_global))) = (windows.single(), cam_q.single()) else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        picker.hovered = None;
+        return;
+    };
+    picker.hovered = camera
+        .viewport_to_world(cam_global, cursor)
+        .ok()
+        .and_then(|ray| pick_index(&registry, ray.origin, ray.direction.as_vec3()));
+
+    if ui.over {
+        picker.press = None;
+        return;
+    }
+    if buttons.just_pressed(MouseButton::Left) {
+        picker.press = Some(cursor);
+    }
+    if buttons.just_released(MouseButton::Left) {
+        if let Some(press) = picker.press.take() {
+            // Only a click (not a drag) selects — drags are camera orbit.
+            if press.distance(cursor) < 5.0 {
+                picker.selected = picker.hovered;
+                picker.detail = match picker.selected {
+                    Some(i) => fetch_detail(&db_path.0, &registry.nodes[i].id),
+                    None => String::new(),
+                };
+            }
+        }
+    }
+}
+
+/// Open the DB and render the full detail view for an entity (cached on selection).
+fn fetch_detail(path: &str, id: &str) -> String {
+    match nbe_data::Db::open(path, None) {
+        Ok(db) => {
+            nbe_cli::ops::show(&db, id, crate::now_unix()).unwrap_or_else(|e| format!("(error: {e})"))
+        }
+        Err(e) => format!("(cannot open '{path}': {e})"),
+    }
 }
 
 pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) {

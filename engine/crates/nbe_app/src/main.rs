@@ -95,14 +95,16 @@ fn main() {
         .insert_resource(BusinessPanel::default())
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())
+        .insert_resource(Picker::default())
         .add_systems(Startup, (load_graph, setup_hud, spawn_lights))
         .add_systems(
             EguiPrimaryContextPass,
-            (sidebar_ui, business_panel_ui, sync_ui_pointer).chain(),
+            (sidebar_ui, business_panel_ui, detail_panel_ui, sync_ui_pointer).chain(),
         )
         .add_systems(
             Update,
             (
+                pick_node,
                 orbit_camera,
                 update_dof,
                 face_camera,

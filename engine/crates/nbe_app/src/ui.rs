@@ -171,6 +171,36 @@ pub(crate) fn business_panel_ui(
         });
 }
 
+/// Floating detail panel for the selected node — its full `ops::show` view. Click a neuron to open.
+pub(crate) fn detail_panel_ui(
+    mut contexts: EguiContexts,
+    registry: Res<NodeRegistry>,
+    mut picker: ResMut<Picker>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    let Some(node) = picker.selected.and_then(|i| registry.nodes.get(i)) else {
+        return;
+    };
+    let title = node.name.clone();
+    let mut open = true;
+    egui::Window::new(format!("🔎 {title}"))
+        .anchor(egui::Align2::LEFT_BOTTOM, [12.0, -12.0])
+        .default_width(320.0)
+        .resizable(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+                ui.monospace(&picker.detail);
+            });
+        });
+    if !open {
+        picker.selected = None;
+        picker.detail.clear();
+    }
+}
+
 /// Mark whether the pointer is over an egui panel, so the camera ignores scroll/drag there.
 pub(crate) fn sync_ui_pointer(mut contexts: EguiContexts, mut ui: ResMut<UiPointer>) {
     if let Ok(ctx) = contexts.ctx_mut() {

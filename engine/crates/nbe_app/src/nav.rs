@@ -5,6 +5,8 @@ use crate::domain::*;
 // ---- navigation registry + camera target ----------------------------------------------
 
 pub(crate) struct NodeInfo {
+    /// Full DB entity id (for detail lookup via `ops::show`).
+    pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) kind: Kind,
     pub(crate) network: Network,
@@ -13,6 +15,18 @@ pub(crate) struct NodeInfo {
     pub(crate) revenue_cents: Option<i64>,
     /// Client renewal date (unix seconds).
     pub(crate) renewal: Option<i64>,
+}
+
+/// Cursor-pick state: which node the pointer is over, which is selected, and the cached detail text
+/// for the selected node. Indices are into `NodeRegistry::nodes`.
+#[derive(Resource, Default)]
+pub(crate) struct Picker {
+    pub(crate) hovered: Option<usize>,
+    pub(crate) selected: Option<usize>,
+    /// Cursor position when the left button went down — to tell a click from an orbit-drag.
+    pub(crate) press: Option<Vec2>,
+    /// Cached `ops::show` output for the selected node.
+    pub(crate) detail: String,
 }
 
 #[derive(Resource, Default)]
