@@ -18,3 +18,6 @@ pub(crate) const PULSE_ENERGY: f32 = 0.16;
 pub(crate) const MAX_PULSES_PER_FIRE: usize = 3;
 /// Per-network dust mote count.
 pub(crate) const MOTES_PER_NETWORK: usize = 70;
+/// How many pulses may queue on a single busy connection before further ones are dropped — keeps
+/// the flow deliberate without letting backlogs build.
+pub(crate) const QUEUE_CAP: usize = 2;

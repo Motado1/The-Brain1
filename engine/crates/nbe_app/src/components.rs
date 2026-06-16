@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use bevy::prelude::*;
 
@@ -99,6 +99,23 @@ pub(crate) struct GraphNode {
 pub(crate) struct GraphEdge {
     pub(crate) path: Vec<Vec3>,
     pub(crate) target: usize,
+    /// The undirected connection this directed edge belongs to (both directions share one channel,
+    /// so locking it enforces the directional mutex).
+    pub(crate) channel: usize,
+}
+
+/// Traffic state for the network's connections — one `Channel` per undirected connection. A channel
+/// hosts at most one pulse at a time (single occupancy); further requests queue (capped). Because
+/// both directions of a connection share its channel, A→B in flight blocks B→A (directional mutex).
+#[derive(Resource, Default)]
+pub(crate) struct EdgeTraffic {
+    pub(crate) channels: Vec<Channel>,
+}
+
+#[derive(Default)]
+pub(crate) struct Channel {
+    pub(crate) busy: bool,
+    pub(crate) queue: VecDeque<usize>, // directed-edge indices waiting to traverse
 }
 
 /// Shared mesh + per-network glow material for spawning propagation pulses at runtime, so a pulse

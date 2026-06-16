@@ -482,21 +482,21 @@ fn build_scene(
             SceneItem,
         ));
     };
-    // Wire a path into the graph as directed src→dst (and the reverse if undirected) for propagation.
-    fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], directed: bool) {
+    // Wire an undirected connection into the graph as two directed edges sharing one `channel`
+    // (so traffic control can lock both directions together) for propagation.
+    fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], channel: usize) {
         let e1 = graph.edges.len();
         graph.edges.push(GraphEdge {
             path: curve.to_vec(),
             target: di,
+            channel,
         });
         graph.nodes[si].out.push(e1);
-        if !directed {
-            let mut rev = curve.to_vec();
-            rev.reverse();
-            let e2 = graph.edges.len();
-            graph.edges.push(GraphEdge { path: rev, target: si });
-            graph.nodes[di].out.push(e2);
-        }
+        let mut rev = curve.to_vec();
+        rev.reverse();
+        let e2 = graph.edges.len();
+        graph.edges.push(GraphEdge { path: rev, target: si, channel });
+        graph.nodes[di].out.push(e2);
     }
 
     // Organic mesh: connect each neuron to its few nearest neighbours within its own network. This
@@ -504,6 +504,7 @@ fn build_scene(
     // alike) instead of relying on the sparse, mostly-cross-domain data links. Firing propagates
     // along this mesh. (Semantic links return in the per-client zoom-in.)
     const NEIGHBOURS: usize = 3;
+    let mut channel_count = 0usize;
     for (&network, ids) in &groups {
         let edge_mat = themes[&network].1.clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
@@ -534,7 +535,8 @@ fn build_scene(
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
                 let radii = axon_radii(curve.len(), ri * 0.5, rj * 0.5, 0.1);
                 add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
-                wire(&mut graph, idxs[i], idxs[j], &curve, false);
+                wire(&mut graph, idxs[i], idxs[j], &curve, channel_count);
+                channel_count += 1;
             }
         }
     }
@@ -591,6 +593,9 @@ fn build_scene(
     }
 
     commands.insert_resource(graph);
+    commands.insert_resource(EdgeTraffic {
+        channels: (0..channel_count).map(|_| Channel::default()).collect(),
+    });
 
     let all: Vec<Vec3> = pos.values().copied().collect();
     let (center, radius) = bounds(&all);

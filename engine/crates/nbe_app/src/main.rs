@@ -91,6 +91,7 @@ fn main() {
         .insert_resource(CameraTarget::default())
         .insert_resource(NodeRegistry::default())
         .insert_resource(BrainGraph::default())
+        .insert_resource(EdgeTraffic::default())
         .insert_resource(BusinessPanel::default())
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())

@@ -130,11 +130,34 @@ pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Tr
     }
 }
 
-/// Integrate-and-fire: each neuron charges from its activation; when it crosses threshold it
-/// flares and emits a pulse of light down each outgoing edge (a synapse firing).
+/// Spawn one travelling pulse along directed edge `edge_idx`, coloured for its network. A soft,
+/// slow blob of light drifting down the filament.
+fn spawn_pulse(commands: &mut Commands, assets: &PulseAssets, graph: &BrainGraph, edge_idx: usize, seed: u64) {
+    let edge = &graph.edges[edge_idx];
+    // Intra-network edge, so the source and target share a network → colour by the target's.
+    let net = graph.nodes[edge.target].network;
+    let Some(mat) = assets.material.get(&net) else {
+        return;
+    };
+    let mut s = seed | 1;
+    let speed = 0.12 + lcg(&mut s) * 0.12;
+    commands.spawn((
+        Mesh3d(assets.mesh.clone()),
+        MeshMaterial3d(mat.clone()),
+        Transform::from_translation(edge.path[0]),
+        Pulse { edge: edge_idx, t: 0.0, speed, target: edge.target, energy: PULSE_ENERGY },
+        Billboard,
+        SceneItem,
+    ));
+}
+
+/// Integrate-and-fire: each neuron charges from its activation; when it crosses threshold it flares
+/// and tries to emit a pulse down each outgoing edge. Traffic control (one pulse per connection,
+/// directional mutex, capped queue) keeps the flow clean — see `EdgeTraffic`.
 pub(crate) fn fire_scheduler(
     time: Res<Time>,
     graph: Res<BrainGraph>,
+    mut traffic: ResMut<EdgeTraffic>,
     pulse: Option<Res<PulseAssets>>,
     mut commands: Commands,
     mut q: Query<(&Neuron, &mut Firing)>,
@@ -150,27 +173,22 @@ pub(crate) fn fire_scheduler(
         if firing.accumulator >= node.threshold {
             firing.accumulator = 0.0;
             firing.intensity = 1.0;
-            if let Some(pmat) = pulse.as_ref().and_then(|p| p.material.get(&node.network).cloned()) {
-                let mesh = pulse.as_ref().unwrap().mesh.clone();
+            if let Some(assets) = &pulse {
                 let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
                 for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
-                    let edge = &graph.edges[e];
-                    // slow, calm drift down the filament (not a fast tracer).
-                    let speed = 0.12 + lcg(&mut seed) * 0.12;
-                    commands.spawn((
-                        Mesh3d(mesh.clone()),
-                        MeshMaterial3d(pmat.clone()),
-                        Transform::from_translation(edge.path[0]),
-                        Pulse {
-                            edge: e,
-                            t: 0.0,
-                            speed,
-                            target: edge.target,
-                            energy: PULSE_ENERGY,
-                        },
-                        Billboard,
-                        SceneItem,
-                    ));
+                    let c = graph.edges[e].channel;
+                    let Some(ch) = traffic.channels.get_mut(c) else {
+                        continue;
+                    };
+                    if !ch.busy {
+                        // claim the connection and send the pulse.
+                        ch.busy = true;
+                        spawn_pulse(&mut commands, assets, &graph, e, seed);
+                    } else if ch.queue.len() < QUEUE_CAP && !ch.queue.contains(&e) {
+                        // connection in use — queue this direction behind the current pulse.
+                        ch.queue.push_back(e);
+                    }
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 }
             }
         }
@@ -206,6 +224,8 @@ pub(crate) fn fire_render(
 pub(crate) fn advance_pulses(
     time: Res<Time>,
     graph: Res<BrainGraph>,
+    mut traffic: ResMut<EdgeTraffic>,
+    assets: Option<Res<PulseAssets>>,
     mut commands: Commands,
     mut pulses: Query<(Entity, &mut Pulse, &mut Transform)>,
     mut fire: Query<&mut Firing>,
@@ -227,6 +247,17 @@ pub(crate) fn advance_pulses(
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {
                     f.accumulator += pulse.energy;
+                }
+            }
+            // Release the connection: hand it to the next queued pulse, or free it.
+            let channel = edge.channel;
+            if let Some(ch) = traffic.channels.get_mut(channel) {
+                if let Some(next) = ch.queue.pop_front() {
+                    if let Some(assets) = &assets {
+                        spawn_pulse(&mut commands, assets, &graph, next, ent.to_bits());
+                    }
+                } else {
+                    ch.busy = false;
                 }
             }
             commands.entity(ent).despawn();
