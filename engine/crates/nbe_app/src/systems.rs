@@ -296,9 +296,12 @@ pub(crate) fn face_camera(
 }
 
 /// Keep depth-of-field focused at the current orbit distance so the looked-at cluster stays crisp.
-pub(crate) fn update_dof(mut query: Query<(&OrbitCamera, &mut DepthOfField)>) {
+pub(crate) fn update_dof(time: Res<Time>, mut query: Query<(&OrbitCamera, &mut DepthOfField)>) {
+    // Ease the focus plane toward the current orbit distance ("focus pulling") so zooming/flying
+    // softens foreground & background into bokeh smoothly rather than snapping.
+    let k = (time.delta_secs() * 3.0).min(1.0);
     for (orbit, mut dof) in &mut query {
-        dof.focal_distance = orbit.radius;
+        dof.focal_distance += (orbit.radius - dof.focal_distance) * k;
     }
 }
 

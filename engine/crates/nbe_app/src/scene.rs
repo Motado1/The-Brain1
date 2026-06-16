@@ -592,6 +592,31 @@ fn build_scene(
         }
     }
 
+    // Background micro-fibers: a dim, hair-thin layer per network for biological depth (static).
+    for network in Network::ALL {
+        let Some(&nr) = net_radii.get(&network) else {
+            continue;
+        };
+        let (tr, tg, tb) = theme_rgb(network);
+        let fiber_mat = materials.add(StandardMaterial {
+            base_color: Color::srgba(tr, tg, tb, 0.05),
+            emissive: LinearRgba::rgb(tr * 0.12, tg * 0.12, tb * 0.12),
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            ..default()
+        });
+        let seed = match network {
+            Network::Business => 0xA1F0_3C7B,
+            Network::Research => 0xB2E1_9D45,
+        };
+        commands.spawn((
+            Mesh3d(meshes.add(background_fibers_mesh(network.center(), nr, 200, seed))),
+            MeshMaterial3d(fiber_mat),
+            Transform::default(),
+            SceneItem,
+        ));
+    }
+
     commands.insert_resource(graph);
     commands.insert_resource(EdgeTraffic {
         channels: (0..channel_count).map(|_| Channel::default()).collect(),

@@ -203,6 +203,37 @@ pub(crate) fn dendrite_radii(n: usize, base: f32) -> Vec<f32> {
         .collect()
 }
 
+/// A dim, hair-thin tangle of background micro-fibers filling a network's volume — non-interactive
+/// "noise" that simulates infinite biological depth and scale contrast. Many filaments are merged
+/// into one mesh (one draw call).
+pub(crate) fn background_fibers_mesh(center: Vec3, radii: Vec3, count: usize, seed: u64) -> Mesh {
+    let mut s = seed | 1;
+    let mut builder = TubeBuilder::default();
+    let thin = radii.x * 0.0016; // hair-thin relative to the cluster
+    for _ in 0..count {
+        let spread = 0.3 + lcg(&mut s) * 1.1;
+        let offset = Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5) * 2.0;
+        let mut p = center + offset * radii * spread;
+        let segs = 6 + (lcg(&mut s) * 6.0) as usize;
+        let seg_len = radii.x * (0.05 + lcg(&mut s) * 0.12);
+        let mut dir =
+            Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5).normalize_or_zero();
+        if dir.length_squared() < 1e-6 {
+            dir = Vec3::Y;
+        }
+        let mut pts = vec![p];
+        for _ in 0..segs {
+            let j = Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5) * 0.5;
+            dir = (dir + j).normalize_or_zero();
+            p += dir * seg_len;
+            pts.push(p);
+        }
+        let prof = vec![thin; pts.len()];
+        builder.add(&pts, &prof, 4);
+    }
+    builder.build()
+}
+
 /// Grow a small tree of wandering, tapering filaments out of a neuron — the dendrites that make it
 /// read as a living cell instead of a dot. Returns one merged mesh.
 pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) -> Mesh {
