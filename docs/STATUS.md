@@ -127,7 +127,9 @@ cargo run -p nbe_app --release -- --db demo.db
 First-time setup script: `engine/scripts/setup-windows.ps1` (installs Rust/MSVC/Perl/NASM, builds).
 
 ## NEXT STEPS (in priority order)
-0. **Verify the whole visual + interaction pass at the desktop** (lots built unrun): firing/flares,
+0. **Verify the whole visual + interaction pass at the desktop** — the pinned checklist of exactly
+   what needs the owner's eyes lives in **`docs/VISUAL_VERIFICATION.md`** (work it top-to-bottom).
+   (Lots built unrun): firing/flares,
    per-network theming (amber Business / purple Research), soma-axon taper, glow-from-inside
    neurons, pulse traffic flow, the **camera zoom fix**, and **click-to-select → detail panel +
    hover/selection highlight**. Tune cone-pick threshold / click-vs-drag distance / panel placement

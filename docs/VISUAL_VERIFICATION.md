@@ -1,0 +1,88 @@
+# Pending visual / interaction verification
+
+> **Purpose:** the agent builds blind on headless Linux; the owner verifies the GUI on Windows.
+> This file pins **exactly what still needs a desktop run** so backend work can continue without
+> losing track. Work the checklist top-to-bottom in one session, tick items, and note what to tune.
+> Keep this file current: when something is confirmed good, move it to **Verified**; when a build
+> changes the look, add a new item.
+
+**Run it:**
+```powershell
+git pull origin claude/neural-business-engine-arch-h7i8xj
+cargo run -p nbe_app --release -- --db brain.db
+```
+
+---
+
+## ⏳ PENDING — verify these on the desktop
+
+### Camera
+- [ ] **Zoom-to-cursor pivot** (commit `dc329bd`): zoom into a cluster, then left-drag — does it
+      orbit *what you zoomed into* (not a stale far point)? This was the reported bug.
+      *Tune:* `systems.rs orbit_camera` — `scroll * 0.18` (radius rate), `scroll * 0.35` (pull toward
+      node); cone in `pick_index` `perp < along*0.05 + 3.0`.
+- [ ] **Smooth depth-of-field** (`8ed125a`): zoom/fly softens fore/background into bokeh smoothly,
+      no snapping. *Tune:* `update_dof` lerp rate `* 3.0`.
+
+### Picking & selection (the interaction foundation — verify before building the visual frontend)
+- [ ] **Hover highlight**: pointing at a neuron brightens it (and swells its halo). Too subtle / too
+      strong? *Tune:* `fire_render` boosts — hovered `(1.5, 1.25)`.
+- [ ] **Click-to-select**: a stationary left-click selects a neuron (strong highlight) and opens the
+      **detail panel** (bottom-left) with its info. *Tune:* selected boost `(2.4, 1.6)`.
+- [ ] **Click vs orbit feel**: does selecting vs rotating feel natural, or is clicking too grabby /
+      too fussy? *Tune:* cone `perp < along*0.05 + 3.0` (width); click-vs-drag distance `< 5.0`
+      in `pick_node`.
+- [ ] **Detail panel**: readable, well-placed (LEFT_BOTTOM), closes to deselect. Glassmorphic
+      styling not done yet.
+
+### Synaptic flow
+- [ ] **Pulse traffic rules** (`0ecba78`): pulses look calm/deliberate; you should **never** see two
+      pulses overlapping on one fiber. *Tune:* `tuning.rs QUEUE_CAP`, pulse speed in `fire_scheduler`
+      / `spawn_pulse` (`0.12 + 0.12·rand`).
+- [ ] **Firing pace & brightness** (`198b996`): calm, soft glow — not a busy/blinding "star field".
+      *Tune:* `tuning.rs` FIRE_BASE / FIRE_NEED / FIRE_DECAY / FLARE_GAIN / HALO_SWELL /
+      PULSE_ENERGY / MAX_PULSES_PER_FIRE.
+
+### Node & network look
+- [ ] **Glow-from-inside neurons** (`70ddff7`): translucent membrane body with a brighter core
+      inside — light contained in a cell, not a bare dot. Membrane too opaque / too invisible?
+      *Tune:* `scene.rs` membrane `srgba(r*0.5,…,0.22)`; core size `shape * 0.5`.
+- [ ] **Soma→axon taper** (`375f1e6`): edges visibly grow out of the cell body (flared at the soma,
+      thin waist). *Tune:* `axon_radii(.., ri*0.5, rj*0.5, 0.1)` — flare factor `0.5`, waist `0.1`.
+- [ ] **Misshapen cells**: slightly irregular/oriented, not perfect spheres. *Tune:* `shape` scale
+      `0.78 + rand*0.5` in `scene.rs`.
+- [ ] **Networks identical except hue** (`bb2c879`, `6e14a47`): Business = warm amber, Research =
+      blue-purple; same density/texture, themed edges/membranes/dendrites/pulses. *Tune:* `scene.rs
+      theme_rgb` — Business `(1.0,0.55,0.15)`, Research `(0.5,0.42,1.0)`; density `geometry.rs
+      density_radii` `(32.6, 24.8, 32.6)`.
+- [ ] **Fewer CRM nodes**: ledger folded into clients → Business ≈ one neuron per client. (Demo seed
+      still has many clients; real `brain.db` will be sparse.)
+- [ ] **Background depth fibers** (`8ed125a`): faint hair-thin layer adds depth without clutter.
+      *Tune:* `scene.rs` fiber count `200`, alpha `0.05`; `geometry.rs background_fibers_mesh` thin
+      `0.0016`.
+- [ ] **Distance fog vs purple Research**: fog is warm-amber tinted — does it clash with the purple
+      cluster in the distance? *Tune:* `scene.rs spawn_camera` `DistanceFog.color`.
+
+---
+
+## 🔒 BLOCKED — backend built, but needs the visual frontend before it can be verified
+These are tested headless (logic) but have **no UI yet** to trigger/observe them. Verify once the
+Phase B3 frontend (hover ring + action buttons) emits the events. (Backend: commit `bff35a3`.)
+- [ ] **Hover action buttons** appear after ~450ms linger (`InteractionState` / `HOVER_THRESHOLD`).
+- [ ] **Sprout / Link / Edit / Dissolve** buttons fire `UiRequest*` → `ops::sprout/link/delete`.
+- [ ] **Apoptosis**: deleting a node fades it over 800ms then despawns; it stops firing immediately.
+- [ ] **Financial scale**: client neuron size reflects earned revenue (`TargetVisualScale`) — not yet
+      wired into the live transform (Breath drives scale today); needs the visual layer to apply it.
+
+---
+
+## ✅ VERIFIED (move items here once confirmed good on the desktop)
+- Earlier renderer baseline (organic neurons, dendrites, two networks, sidebar fly-to, Add Research
+  button) — confirmed via screenshots in earlier sessions.
+
+---
+
+## Notes / open tuning questions for the owner
+- Keep the warm-amber + blue-purple palette (cyan/teal suggestion was rejected).
+- Decide if the per-domain hue is enough, or networks should be even more identical.
+- Decide flare/waist strength on the soma→axon taper once seen.

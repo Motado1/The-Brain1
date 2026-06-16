@@ -61,5 +61,8 @@ libasound2-dev libudev-dev`.
 
 ## Pointers
 - Living handoff / status / next steps: `docs/STATUS.md`
+- **Pending desktop visual/interaction verification (what still needs the owner's eyes):**
+  `docs/VISUAL_VERIFICATION.md` — keep current; the agent builds blind, so unverified visual changes
+  accumulate here until the owner runs the GUI.
 - Architecture + phased plan: `docs/ARCHITECTURE_NEURAL_BUSINESS_ENGINE.md`, `docs/BUILD_PLAN.md`
 - Renderer: `engine/crates/nbe_app/src/main.rs` · CLI logic: `engine/crates/nbe_cli/src/{ops,main}.rs`
