@@ -309,9 +309,11 @@ fn build_scene(
             metallic: 0.0,
             ..default()
         });
+        // Thin, *glowing* filaments — like lit fibre-optic threads (the reference look). Now that
+        // they're thin, a colour glow reads as light, not orange plastic. Blend + emissive + bloom.
         let edge = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.6, 0.58, 0.55, 0.14),
-            emissive: LinearRgba::rgb(r * 0.05, g * 0.05, b * 0.05),
+            base_color: Color::srgba(r, g, b, 0.10),
+            emissive: LinearRgba::rgb(r * 0.6, g * 0.6, b * 0.6),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             perceptual_roughness: 0.06,
@@ -320,8 +322,8 @@ fn build_scene(
             ..default()
         });
         let dendrite = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.6, 0.58, 0.55, 0.12),
-            emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
+            base_color: Color::srgba(r, g, b, 0.10),
+            emissive: LinearRgba::rgb(r * 0.45, g * 0.45, b * 0.45),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
             perceptual_roughness: 0.1,
@@ -560,7 +562,8 @@ fn build_scene(
                 };
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
-                let radii = axon_radii(curve.len(), ri * 0.5, rj * 0.5, 0.1);
+                // Thin throughout, with only a slight thickening where it meets the soma.
+                let radii = axon_radii(curve.len(), ri * 0.16, rj * 0.16, 0.045);
                 add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
                 wire(&mut graph, idxs[i], idxs[j], &curve, channel_count);
                 channel_count += 1;

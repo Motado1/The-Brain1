@@ -264,7 +264,7 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
             p += dir * seg_len;
             pts.push(p);
         }
-        let radii = dendrite_radii(pts.len(), node_r * 0.28);
+        let radii = dendrite_radii(pts.len(), node_r * 0.12);
         builder.add(&pts, &radii, 5);
     }
     builder.build()
