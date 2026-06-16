@@ -6,6 +6,7 @@ use bevy::window::PrimaryWindow;
 
 use crate::components::*;
 use crate::geometry::*;
+use crate::interaction::Dissolving;
 use crate::nav::*;
 use crate::tuning::*;
 
@@ -178,7 +179,7 @@ pub(crate) fn pick_node(
 }
 
 /// Open the DB and render the full detail view for an entity (cached on selection).
-fn fetch_detail(path: &str, id: &str) -> String {
+pub(crate) fn fetch_detail(path: &str, id: &str) -> String {
     match nbe_data::Db::open(path, None) {
         Ok(db) => {
             nbe_cli::ops::show(&db, id, crate::now_unix()).unwrap_or_else(|e| format!("(error: {e})"))
@@ -224,7 +225,7 @@ pub(crate) fn fire_scheduler(
     mut traffic: ResMut<EdgeTraffic>,
     pulse: Option<Res<PulseAssets>>,
     mut commands: Commands,
-    mut q: Query<(&Neuron, &mut Firing)>,
+    mut q: Query<(&Neuron, &mut Firing), Without<Dissolving>>,
 ) {
     let dt = time.delta_secs();
     for (neuron, mut firing) in &mut q {
@@ -265,7 +266,7 @@ pub(crate) fn fire_render(
     time: Res<Time>,
     picker: Res<Picker>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    q: Query<(Entity, &Firing, &NodeViz)>,
+    q: Query<(Entity, &Firing, &NodeViz), Without<Dissolving>>,
     mut transforms: Query<&mut Transform>,
 ) {
     let t = time.elapsed_secs();

@@ -14,6 +14,7 @@
 mod components;
 mod domain;
 mod geometry;
+mod interaction;
 mod nav;
 mod panel;
 mod scene;
@@ -31,6 +32,7 @@ use bevy::window::WindowResolution;
 use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use crate::components::*;
+use crate::interaction::*;
 use crate::nav::*;
 use crate::panel::*;
 use crate::scene::*;
@@ -96,6 +98,11 @@ fn main() {
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())
         .insert_resource(Picker::default())
+        .insert_resource(InteractionState::default())
+        .add_message::<UiRequestSprout>()
+        .add_message::<UiRequestLink>()
+        .add_message::<UiRequestEdit>()
+        .add_message::<UiRequestDissolve>()
         .add_systems(Startup, (load_graph, setup_hud, spawn_lights))
         .add_systems(
             EguiPrimaryContextPass,
@@ -115,6 +122,18 @@ fn main() {
                 advance_pulses,
                 drift_motes,
                 apply_reload,
+            ),
+        )
+        .add_systems(
+            Update,
+            (
+                update_interaction,
+                purge_dissolving,
+                update_financial_scale,
+                on_sprout,
+                on_link,
+                on_edit,
+                on_dissolve,
             ),
         )
         .run();

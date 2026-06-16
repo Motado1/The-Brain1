@@ -24,6 +24,36 @@ pub fn note_add(
     Ok(format!("added note {} ({title})", short(&id)))
 }
 
+/// "Sprout": grow a new research note and link it to an existing node — the tested backend for the
+/// spatial-UI Sprout action. Returns a summary.
+pub fn sprout(db: &mut nbe_data::Db, parent: &str, title: &str, now: i64) -> Result<String> {
+    let parent_id = resolve(db, parent)?;
+    let id = new_entity(db, now)?;
+    repo::upsert_knowledge(
+        &db.conn,
+        &KnowledgeFacet {
+            entity_id: id.clone(),
+            body_md: format!("# {title}\n\n"),
+            template_type: None,
+            review_status: "draft".into(),
+        },
+    )?;
+    repo::set_layer(&db.conn, &id, &Layer::Hidden(1))?;
+    set_activation(db, &id, 0.3)?;
+    repo::insert_edge(
+        &db.conn,
+        &Edge {
+            id: new_id(),
+            source_id: parent_id.clone(),
+            target_id: id.clone(),
+            edge_type: "ref".into(),
+            weight: 1.0,
+            directed: true,
+        },
+    )?;
+    Ok(format!("sprouted {} ({title}) from {}", short(&id), short(&parent_id)))
+}
+
 /// List research notes. With `tag`, only notes linked to that topic; otherwise all notes
 /// (topic neurons themselves are excluded — see `topic_list`).
 pub fn note_list(db: &nbe_data::Db, tag: Option<&str>) -> Result<String> {

@@ -14,6 +14,7 @@ use nbe_geometry::{edge_curve, CurveParams};
 use crate::components::*;
 use crate::domain::*;
 use crate::geometry::*;
+use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
 use crate::tuning::*;
@@ -432,6 +433,14 @@ fn build_scene(
             });
             index.insert(id.clone(), idx);
             radius_of.insert(id.clone(), r);
+
+            // Clients carry their earned revenue → a target visual weight (financial aggregator).
+            if kind == Kind::Client {
+                let rev = revenue_of.get(id).copied().unwrap_or(0);
+                commands
+                    .entity(node)
+                    .insert((ClientRevenue(rev), TargetVisualScale(revenue_to_scale(rev))));
+            }
 
             // Radiating dendrites — clients and notes sprout identically (ledger folded out).
             let dcount = match kind {

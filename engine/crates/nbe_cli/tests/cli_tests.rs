@@ -578,6 +578,30 @@ fn today_briefing_composes_sections() {
 }
 
 #[test]
+fn sprout_creates_a_note_linked_to_the_parent() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+
+    let msg = ops::sprout(&mut db, &cid[..8], "Fresh idea", NOW).unwrap();
+    assert!(msg.contains("Fresh idea"), "{msg}");
+
+    // the new note exists under its title …
+    let note = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|k| k.body_md.starts_with("# Fresh idea"))
+        .expect("sprouted note exists");
+    // … and the parent links to it.
+    let outs = repo::outgoing(&db.conn, &cid).unwrap();
+    assert!(
+        outs.iter().any(|e| e.target_id == note.entity_id),
+        "parent should link to the sprouted note"
+    );
+    assert!(ops::note_list(&db, None).unwrap().contains("Fresh idea"));
+}
+
+#[test]
 fn note_import_front_matter_creates_note_and_topics() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("creatine.md");
