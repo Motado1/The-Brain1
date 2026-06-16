@@ -217,7 +217,7 @@ pub(crate) fn dendrite_radii(n: usize, base: f32) -> Vec<f32> {
 pub(crate) fn background_fibers_mesh(center: Vec3, radii: Vec3, count: usize, seed: u64) -> Mesh {
     let mut s = seed | 1;
     let mut builder = TubeBuilder::default();
-    let thin = radii.x * 0.0016; // hair-thin relative to the cluster
+    let thin = 0.04; // genuinely hair-thin (absolute) — faint depth strands, not thick gray streaks
     for _ in 0..count {
         let spread = 0.3 + lcg(&mut s) * 1.1;
         let offset = Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5) * 2.0;

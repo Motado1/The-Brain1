@@ -40,9 +40,9 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
             intensity: 0.3,
             ..Bloom::NATURAL
         },
-        // Warm dark haze so distant neurons melt into amber depth rather than a hard cutoff.
+        // Deep blue-neutral haze so distant neurons melt into atmospheric depth (reference look).
         DistanceFog {
-            color: Color::srgb(0.05, 0.022, 0.012),
+            color: Color::srgb(0.014, 0.017, 0.026),
             falloff: FogFalloff::ExponentialSquared { density: 0.00055 },
             ..default()
         },
@@ -536,6 +536,8 @@ fn build_scene(
     let mut channel_count = 0usize;
     for (&network, ids) in &groups {
         let edge_mat = themes[&network].1.clone();
+        // Small additive glow dots strung along each filament — the "beads of light" of the refs.
+        let bead_mat = themes[&network].3.clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
         let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
@@ -565,6 +567,17 @@ fn build_scene(
                 // Thin throughout, with only a slight thickening where it meets the soma.
                 let radii = axon_radii(curve.len(), ri * 0.16, rj * 0.16, 0.045);
                 add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
+                // Beads of light strung along the filament (a signature of the reference images).
+                for bt in [0.25f32, 0.5, 0.75] {
+                    commands.spawn((
+                        Mesh3d(halo_quad.clone()),
+                        MeshMaterial3d(bead_mat.clone()),
+                        Transform::from_translation(sample_path(&curve, bt))
+                            .with_scale(Vec3::splat(0.55)),
+                        Billboard,
+                        SceneItem,
+                    ));
+                }
                 wire(&mut graph, idxs[i], idxs[j], &curve, channel_count);
                 channel_count += 1;
             }
