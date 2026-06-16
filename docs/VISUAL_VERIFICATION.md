@@ -90,11 +90,16 @@ Phase B3 frontend (hover ring + action buttons) emits the events. (Backend: comm
 
 ---
 
+## ⏳ NEW — verify next desktop run (commit `eadc3e3`)
+- [ ] **Amber cores no longer blow out to white** — white-hot mix cut 0.7→0.25 in `geometry.rs
+      node_emissive`, so amber blooms orange. Purple should be ~unchanged. Confirm amber keeps a
+      visible membrane ring like the purple does.
+- [ ] **Tissue is lit, not inherently coloured** — membranes/edges/dendrites/background fibers are
+      now near-neutral translucent; their colour should come from the cores' bloom + neutral scene
+      lights, not baked-in orange. **Risk (built blind):** could read too dark / washed if the
+      neutral lighting is too weak. Knobs: tissue `emissive r*0.04..0.05` in `scene.rs` themes loop;
+      `spawn_lights` directional illuminance; `AmbientLight` brightness `50` in `spawn_camera`.
+
 ## Notes / open tuning questions for the owner
 - Keep the warm-amber + blue-purple palette (cyan/teal suggestion was rejected).
-- **Amber cores blow out to white** more than purple (e.g. the bright central blob in the close-up).
-  The purple cluster keeps a visible membrane ring around the core; amber loses it at high
-  activation. Optional fix: lower the amber core intensity / soften the white-hot mix in
-  `geometry.rs node_emissive`, or theme the hotspot per-network instead of pure white. Owner happy
-  for now — revisit if desired.
 - Decide flare/waist strength on the soma→axon taper once seen.
