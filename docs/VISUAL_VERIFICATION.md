@@ -1,5 +1,18 @@
 # Pending visual / interaction verification
 
+## ⏳⏳ NEWEST — shader-overhaul plan, verify in order (commits `a737743`, `ddb87f7`)
+- [ ] **Phase 1 (`a737743`)** — beads of light along filaments (3/edge); thick gray streaks gone
+      (background fibers now hair-thin); cooler deep-blue atmosphere (fog + ClearColor). Knobs:
+      bead count/scale in `scene.rs` web loop; `DistanceFog.color`/`ClearColor`.
+- [ ] **Phase 2 (`ddb87f7`) — soma Fresnel "cell-wall" shader (FIRST custom shader).** Somas should
+      show a glowing rim at the silhouette + clear centre, nucleus glowing within. Knobs: `RIM_POWER`
+      / `RIM_INTENSITY` / `RIM_ALPHA` in `tuning.rs`.
+      **⚠ Shader is validated at RUNTIME, not at build.** If somas render wrong/invisible/pink, it's
+      a WGSL error — check the console log for a `naga`/shader error and send it; that's the fix
+      signal. (Shader: `crates/nbe_app/src/soma.wgsl`, material in `shaders.rs`.)
+- [ ] **Phase 3 (not built yet)** — UV-scroll "flowing light" fiber shader. Gated on Phase 2 looking
+      right (don't stack two unverified runtime-shaders).
+
 > **Purpose:** the agent builds blind on headless Linux; the owner verifies the GUI on Windows.
 > This file pins **exactly what still needs a desktop run** so backend work can continue without
 > losing track. Work the checklist top-to-bottom in one session, tick items, and note what to tune.
