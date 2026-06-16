@@ -255,8 +255,8 @@ fn build_scene(
     }
 
     // Spawn nodes + build the navigation registry. Each soma = a faint translucent structural
-    // sphere (real 3D form) under additive glow billboards (the light).
-    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(3).unwrap());
+    // sphere (real 3D form) under additive glow billboards (the light). Low-poly: it's a soft blur.
+    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap());
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
@@ -298,8 +298,10 @@ fn build_scene(
         // colour from the LIGHT — the bright cores blooming through/over it and the scene lights —
         // rather than glowing its own hue. Only a faint theme whisper so dim, far-from-core tissue
         // still hints at its network. (The cores, halos, pulses, and motes remain the real emitters.)
+        // Translucent structural body — kept very faint so it gives form without over-blending
+        // (and thus flickering) against the additive glow that sits at the same point.
         let membrane = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.5, 0.48, 0.46, 0.22),
+            base_color: Color::srgba(0.5, 0.48, 0.46, 0.13),
             emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
             alpha_mode: AlphaMode::Blend,
             cull_mode: None,
