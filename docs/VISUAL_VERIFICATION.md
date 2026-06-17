@@ -1,6 +1,22 @@
 # Pending visual / interaction verification
 
-## ⏳⏳ NEWEST — shader-overhaul plan, verify in order (commits `a737743`, `ddb87f7`)
+## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)
+Goal (from the owner's reference images + Gemini's "anatomy of the real node"): somas read as a
+**textured granular mass** with filaments **erupting like roots** from the surface, light compounding
+at the junctions — the **hybrid** look (still glowing from within, not a fully opaque rock).
+- [ ] **Lumpy soma silhouette** — somas are now displaced icospheres (a 6-mesh pool, picked per node),
+      so outlines are bumpy/granular and the Fresnel rim ripples across the contours instead of a
+      smooth ball. *Knobs:* `SOMA_BUMP` (lump depth), `SOMA_SUBDIV` (resolution), `SOMA_VARIANTS`
+      (pool size) in `tuning.rs`; mesh in `geometry.rs::displaced_sphere`.
+- [ ] **Root flaring at junctions** — filaments start *inside* the soma (`ROOT_EMBED`) and flare wide
+      (`ROOT_FLARE`) where they meet it, so they look fused to the body, not kissing the surface.
+      *Knobs:* `ROOT_EMBED` / `ROOT_FLARE` in `tuning.rs`; logic in `scene.rs` web loop + `axon_radii`.
+- [ ] **Junction glow** — an additive glow dot sits at each filament→soma anchor; on a well-connected
+      node these compound into a bright root cluster. *Knob:* `JUNCTION_GLOW` in `tuning.rs`.
+- *Next (NOT built — Phase 2, gated on this looking right):* procedural 3D noise in `soma.wgsl` for
+  smoky micro-crevice light-scatter on the surface (runtime-WGSL → naga-error risk, like Phase 2/3).
+
+## ⏳⏳ shader-overhaul plan, verify in order (commits `a737743`, `ddb87f7`)
 - [ ] **Phase 1 (`a737743`)** — beads of light along filaments (3/edge); thick gray streaks gone
       (background fibers now hair-thin); cooler deep-blue atmosphere (fog + ClearColor). Knobs:
       bead count/scale in `scene.rs` web loop; `DistanceFog.color`/`ClearColor`.
@@ -21,7 +37,7 @@
 
 **Run it:**
 ```powershell
-git pull origin claude/neural-business-engine-arch-h7i8xj
+git pull origin main
 cargo run -p nbe_app --release -- --db brain.db
 ```
 

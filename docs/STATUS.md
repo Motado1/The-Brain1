@@ -6,8 +6,18 @@
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
-**Visual: custom-shader overhaul in flight** (per-item desktop checklist in
+**Visual: granular-soma overhaul (hybrid look) in flight** (per-item desktop checklist in
 `docs/VISUAL_VERIFICATION.md`). Bevy **0.18.1**.
+- **Phase 1 done — geometry, headless-verified, no shader risk.** Somas are now lumpy **displaced
+  icospheres** (`geometry.rs::displaced_sphere`, 6-mesh pool picked per node) for a granular,
+  light-catching mass; filaments **embed + flare** into the soma like roots (`ROOT_EMBED`/`ROOT_FLARE`
+  in `tuning.rs`, `scene.rs` web loop); an additive **junction glow** dot sits at each anchor so light
+  compounds where roots meet the surface (`JUNCTION_GLOW`). New tunables + 2 unit tests in `geometry.rs`.
+  *Awaiting desktop screenshot to tune `SOMA_BUMP`/flare/glow.*
+- Phase 2 (NOT built, gated on Phase 1 looking right): procedural 3D noise in `soma.wgsl` for smoky
+  micro-crevice surface scatter — runtime-WGSL (naga-error risk).
+
+Earlier shader work (still pending desktop verify):
 - Phase 1 done (`a737743`): beads of light on filaments, hair-thin background fibers, cooler
   deep-blue atmosphere.
 - Phase 2 done (`ddb87f7`): **first custom WGSL material** — `SomaMaterial` Fresnel "cell-wall"

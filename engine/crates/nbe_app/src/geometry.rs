@@ -1,6 +1,6 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::image::Image;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
@@ -270,6 +270,40 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
     builder.build()
 }
 
+/// Smooth multi-octave pseudo-noise in [-1, 1] from a direction on the sphere — cheap, deterministic
+/// (sine "value noise"), enough for organic lumps. `seed` shifts the pattern per variant.
+fn soma_noise(d: Vec3, seed: f32) -> f32 {
+    let p = d * 3.3 + Vec3::splat(seed);
+    let o1 = (p.x).sin() * (p.y).cos() * (p.z).sin();
+    let o2 = (p.x * 2.1 + 1.7).sin() * (p.y * 2.3).cos() * (p.z * 1.9 + 0.5).sin();
+    let o3 = (p.x * 4.2).sin() * (p.y * 3.7 + 2.0).cos() * (p.z * 4.5).sin();
+    (o1 * 0.6 + o2 * 0.3 + o3 * 0.1).clamp(-1.0, 1.0)
+}
+
+/// Granular soma mesh (Target 1, "the mass"): an icosphere whose vertices are pushed in/out along
+/// their radius by `soma_noise`, giving a lumpy "rough gemstone / packed cluster" silhouette that
+/// catches light unevenly instead of a smooth ball. Normals are recomputed so the bumps shade
+/// correctly (the Fresnel rim then ripples across the contours). `subdivisions` sets resolution,
+/// `amp` is bump depth as a fraction of radius, `seed` varies the lump pattern between variants.
+pub(crate) fn displaced_sphere(subdivisions: u8, amp: f32, seed: u64) -> Mesh {
+    let mut mesh = Sphere::new(1.0)
+        .mesh()
+        .ico(u32::from(subdivisions))
+        .expect("icosphere subdivisions in range");
+    let so = seed as f32 * 0.618_034;
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let dir = Vec3::from_array(*p).normalize_or_zero(); // unit sphere → position == normal
+            let r = 1.0 + amp * soma_noise(dir, so);
+            *p = (dir * r).to_array();
+        }
+    }
+    mesh.compute_normals();
+    mesh
+}
+
 /// A soft round radial-gradient texture (white core fading to transparent) for the glow halos.
 pub(crate) fn glow_texture() -> Image {
     const N: usize = 64;
@@ -298,4 +332,42 @@ pub(crate) fn glow_texture() -> Image {
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn displaced_sphere_stays_within_bump_bounds() {
+        let amp = 0.18;
+        let mesh = displaced_sphere(3, amp, 1);
+        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("expected Float32x3 positions");
+        };
+        assert!(!pos.is_empty(), "mesh has vertices");
+        // Every vertex sits between the inward and outward extremes of the noise displacement —
+        // it's a bumpy ball, never collapsed or blown out.
+        for p in pos {
+            let r = Vec3::from_array(*p).length();
+            assert!(
+                (1.0 - amp - 1e-3..=1.0 + amp + 1e-3).contains(&r),
+                "vertex radius {r} outside bump bounds"
+            );
+        }
+    }
+
+    #[test]
+    fn displaced_sphere_variants_differ() {
+        // Different seeds must produce different lump patterns (so the pool isn't all clones).
+        let a = displaced_sphere(3, 0.18, 1);
+        let b = displaced_sphere(3, 0.18, 4);
+        let (Some(VertexAttributeValues::Float32x3(pa)), Some(VertexAttributeValues::Float32x3(pb))) =
+            (a.attribute(Mesh::ATTRIBUTE_POSITION), b.attribute(Mesh::ATTRIBUTE_POSITION))
+        else {
+            panic!("expected Float32x3 positions");
+        };
+        assert_ne!(pa, pb, "seeds should yield distinct geometry");
+    }
 }

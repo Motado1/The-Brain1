@@ -262,9 +262,12 @@ fn build_scene(
         }
     }
 
-    // Spawn nodes + build the navigation registry. Each soma = a faint translucent structural
-    // sphere (real 3D form) under additive glow billboards (the light). Low-poly: it's a soft blur.
-    let sphere = meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap());
+    // Spawn nodes + build the navigation registry. Each soma = a granular, lumpy structural mass
+    // (real 3D form, Target 1) under additive glow billboards (the light from within). A small shared
+    // pool of displaced-sphere variants gives organic variety without a unique mesh per neuron.
+    let soma_pool: Vec<Handle<Mesh>> = (0..SOMA_VARIANTS)
+        .map(|k| meshes.add(displaced_sphere(SOMA_SUBDIV, SOMA_BUMP, k as u64 + 1)))
+        .collect();
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
@@ -451,7 +454,7 @@ fn build_scene(
                 rand_unit(id, 26) * std::f32::consts::PI,
             );
             commands.spawn((
-                Mesh3d(sphere.clone()),
+                Mesh3d(soma_pool[(hash_u64(id) as usize) % SOMA_VARIANTS].clone()),
                 MeshMaterial3d(soma_of[&network].clone()),
                 Transform { translation: p, rotation: tilt, scale: shape },
                 Breath { base: shape, phase, speed },
@@ -568,21 +571,32 @@ fn build_scene(
                 if !linked.insert(key) {
                     continue;
                 }
-                // Start/end the axon at each soma's *surface* (not its centre) and flare its ends
-                // to a fraction of the soma radius, so it visibly grows out of the cell body.
+                // Anchor each axon *inside* the soma surface (ROOT_EMBED) and flare its ends wide
+                // (ROOT_FLARE) so it fuses into the cell body like a tree root, not a clean pipe
+                // kissing the surface (Targets 2/3).
                 let ri = radius_of.get(&ids[i]).copied().unwrap_or(1.0);
                 let rj = radius_of.get(&ids[j]).copied().unwrap_or(1.0);
                 let dir = (ps[j] - ps[i]).normalize_or_zero();
                 let (a, b) = if ps[i].distance(ps[j]) > ri + rj + 1.0 {
-                    (ps[i] + dir * ri, ps[j] - dir * rj)
+                    (ps[i] + dir * ri * ROOT_EMBED, ps[j] - dir * rj * ROOT_EMBED)
                 } else {
                     (ps[i], ps[j])
                 };
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
-                // Thin throughout, with only a slight thickening where it meets the soma.
-                let radii = axon_radii(curve.len(), ri * 0.16, rj * 0.16, 0.045);
+                // Thin waist, flaring wide where it grips each soma.
+                let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.045);
                 add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
+                // Additive glow dot at each junction — light compounds where roots meet the surface.
+                for jp in [a, b] {
+                    commands.spawn((
+                        Mesh3d(halo_quad.clone()),
+                        MeshMaterial3d(bead_mat.clone()),
+                        Transform::from_translation(jp).with_scale(Vec3::splat(JUNCTION_GLOW)),
+                        Billboard,
+                        SceneItem,
+                    ));
+                }
                 // Beads of light strung along the filament (a signature of the reference images).
                 for bt in [0.25f32, 0.5, 0.75] {
                     commands.spawn((
