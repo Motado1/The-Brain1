@@ -308,7 +308,9 @@ fn grow_dendrite(
             (r1 + (r0 - r1) * (1.0 - t).powf(pow)).max(0.01)
         })
         .collect();
-    builder.add(&pts, &radii, 5);
+    // 8-sided so the tube is a smooth round cross-section (a glassy rod with a clear centre and a
+    // rim outline), not a faceted prism that reads as flat under the Fresnel membrane shader.
+    builder.add(&pts, &radii, 8);
     branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
