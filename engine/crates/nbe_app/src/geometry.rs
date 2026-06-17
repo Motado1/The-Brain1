@@ -289,7 +289,9 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
         if dir.length_squared() < 1e-6 {
             dir = Vec3::Y;
         }
-        let mut p = node;
+        // Start the root *inside* the soma surface (along its outgoing direction) so the flared base
+        // erupts from and fuses with the cell body, instead of sprouting from the dead centre.
+        let mut p = node + dir * node_r * crate::tuning::DEND_EMBED;
         let mut pts = vec![p];
         for _ in 0..segs {
             let jitter =
@@ -298,7 +300,7 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
             p += dir * seg_len;
             pts.push(p);
         }
-        let radii = dendrite_radii(pts.len(), node_r * 0.12);
+        let radii = dendrite_radii(pts.len(), node_r * crate::tuning::DEND_ROOT_R);
         builder.add_organic(&pts, &radii, 5, crate::tuning::TUBE_WOBBLE, s);
     }
     builder.build()

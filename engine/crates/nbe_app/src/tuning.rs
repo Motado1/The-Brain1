@@ -43,8 +43,16 @@ pub(crate) const SOMA_VARIANTS: usize = 6;
 /// (Target 2 — "tree root gripping the soil"). Was 0.16 when the filament merely kissed the surface.
 pub(crate) const ROOT_FLARE: f32 = 0.42;
 /// How far inside the soma surface a filament starts, as a fraction of radius, so its flare embeds
-/// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface.
-pub(crate) const ROOT_EMBED: f32 = 0.82;
+/// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface. Kept well
+/// inside (< the soma's smallest ellipsoid axis, ~0.8) so the connection penetrates the body on
+/// every axis instead of floating off the small ones.
+pub(crate) const ROOT_EMBED: f32 = 0.6;
+/// Where a dendrite's flared root begins, as a fraction of the soma radius — inside the surface so
+/// the root visibly erupts from (and fuses with) the cell body rather than starting at its centre.
+pub(crate) const DEND_EMBED: f32 = 0.55;
+/// A dendrite's root width as a fraction of the soma radius (it tapers from here to a hair-thin tip).
+/// Wider than the old 0.12 so the base reads as a root gripping the soma, like the connection flares.
+pub(crate) const DEND_ROOT_R: f32 = 0.2;
 /// Billboard scale of the additive glow dot placed at each filament→soma junction (Target 3 —
 /// light compounds where roots meet the surface). Slightly larger than the mid-filament beads.
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;
