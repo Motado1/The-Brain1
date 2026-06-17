@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::OrbitCamera;
+use crate::components::{LodReveal, OrbitCamera};
 use crate::nav::NodeRegistry;
 use crate::tuning::{LOD_GALACTIC_DIST, LOD_MICRO_DIST};
 
@@ -84,6 +84,26 @@ pub(crate) fn compute_lod(
             lod.focus = None;
             lod.focus_detail = 0.0;
         }
+    }
+}
+
+/// Reveal data-anatomy elements by scaling them `0 → base_scale` (cubic-smoothed) as the global zoom
+/// detail crosses each element's `[start, full]` window — the finest data nodes materialise on deep
+/// zoom and shrink away (to a shimmering speck, then nothing) when pulled back. Hidden entirely once
+/// imperceptibly small, to skip their draw cost in the galactic view.
+pub(crate) fn apply_lod_reveal(
+    lod: Res<LodState>,
+    mut q: Query<(&LodReveal, &mut Transform, &mut Visibility)>,
+) {
+    for (reveal, mut tf, mut vis) in &mut q {
+        let t = if reveal.full <= reveal.start {
+            if lod.zoom >= reveal.full { 1.0 } else { 0.0 }
+        } else {
+            let u = ((lod.zoom - reveal.start) / (reveal.full - reveal.start)).clamp(0.0, 1.0);
+            u * u * (3.0 - 2.0 * u)
+        };
+        tf.scale = Vec3::splat(reveal.base_scale * t);
+        *vis = if t < 0.01 { Visibility::Hidden } else { Visibility::Inherited };
     }
 }
 

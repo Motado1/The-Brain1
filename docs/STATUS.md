@@ -13,8 +13,13 @@ all data lives inside one continuous fractal-dendrite anatomy, revealed by camer
   `detail_for_distance()` (cubic smoothstep, thresholds `LOD_MICRO_DIST`/`LOD_GALACTIC_DIST` in
   `tuning.rs`) → `LodState{zoom, focus, focus_detail}`. Live HUD readout (band + focus + detail) so
   it's verifiable while flying. 2 unit tests. NOT YET applied to geometry (needs the anatomy first).
-- System 2 (embedded anatomy): sessions=beads along branch segments, packages/research=terminal
-  twigs — generated from real data in `geometry.rs`/new `ops`. NOT built.
+- **System 2 (embedded anatomy) — BUILT, headless-verified.** `anatomy.rs::build_anatomy(snap)` (pure,
+  tested) derives per-entity sessions/packages/research-proxies. `geometry.rs::dendrite_tree` now
+  returns branch polylines; `scene.rs::embed_anatomy` weaves them onto the branches: sessions = a
+  sequential bead chain along the trunks (gold = completed, red = no-show/cancel), packages + research
+  proxies = terminal twigs at the tips (amber active / dim spent / indigo cross-domain). Every element
+  has a `LodReveal` so `lod::apply_lod_reveal` scales it 0→full only on deep zoom (Micro). *Awaiting a
+  Micro-zoom desktop screenshot to tune bead/twig sizes + the reveal window.*
 - System 3 (kinetic flight + Ctrl+P fuzzy search): extend `CameraTarget` lerp → timed cubic ease;
   egui overlay fuzzy-matches `NodeRegistry` strings → sets target. NOT built.
 - System 4 (glassmorphic egui): translucent dark panels, domain-accent trim (amber client / indigo

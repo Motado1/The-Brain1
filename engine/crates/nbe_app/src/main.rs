@@ -11,6 +11,7 @@
 //! of light along the glass-tube edges to neighbours, a real cascade. Ambient twinkle + drifting
 //! dust keep it alive. Camera: left-drag orbits, right/middle-drag pans, scroll flies, Esc unfocuses.
 
+mod anatomy;
 mod components;
 mod domain;
 mod geometry;
@@ -118,6 +119,7 @@ fn main() {
                 pick_node,
                 orbit_camera,
                 compute_lod,
+                apply_lod_reveal,
                 update_dof,
                 face_camera,
                 update_hud,

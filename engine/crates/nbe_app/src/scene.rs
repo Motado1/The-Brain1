@@ -11,6 +11,7 @@ use bevy::render::view::Hdr;
 use nbe_cli::money::format_cents;
 use nbe_geometry::{edge_curve, CurveParams};
 
+use crate::anatomy::*;
 use crate::components::*;
 use crate::domain::*;
 use crate::geometry::*;
@@ -19,6 +20,103 @@ use crate::nav::*;
 use crate::now_unix;
 use crate::shaders::SomaMaterial;
 use crate::tuning::*;
+
+/// Pre-built additive glow materials for the data anatomy (one palette, reused for every neuron).
+struct AnatomyMats {
+    session_done: Handle<StandardMaterial>,
+    session_missed: Handle<StandardMaterial>,
+    package_active: Handle<StandardMaterial>,
+    package_done: Handle<StandardMaterial>,
+    research: Handle<StandardMaterial>,
+}
+
+impl AnatomyMats {
+    fn build(materials: &mut Assets<StandardMaterial>, glow: &Handle<Image>) -> Self {
+        let mut glow_mat = |rgb: LinearRgba| {
+            materials.add(StandardMaterial {
+                base_color: Color::LinearRgba(rgb),
+                base_color_texture: Some(glow.clone()),
+                unlit: true,
+                alpha_mode: AlphaMode::Add,
+                cull_mode: None,
+                ..default()
+            })
+        };
+        Self {
+            session_done: glow_mat(LinearRgba::new(1.6, 1.1, 0.4, 1.0)), // warm gold
+            session_missed: glow_mat(LinearRgba::new(1.4, 0.3, 0.2, 1.0)), // dim red (no-show/cancel)
+            package_active: glow_mat(LinearRgba::new(1.7, 1.2, 0.5, 1.0)), // bright amber
+            package_done: glow_mat(LinearRgba::new(0.5, 0.4, 0.3, 1.0)),  // spent/dim
+            research: glow_mat(LinearRgba::new(0.6, 0.5, 1.6, 1.0)),      // indigo (cross-domain)
+        }
+    }
+}
+
+/// Weave a neuron's data anatomy directly onto its dendrite branches (no detached satellites):
+/// session logs become a sequential bead chain along the trunk segments; packages and cross-domain
+/// research proxies become terminal twigs at the branch tips. Every element carries a `LodReveal`
+/// so it only materialises on deep zoom (the Micro view).
+fn embed_anatomy(
+    commands: &mut Commands,
+    quad: &Handle<Mesh>,
+    mats: &AnatomyMats,
+    branches: &[DendriteBranch],
+    an: &Anatomy,
+) {
+    // Sessions: a chain of beads strung sequentially along the trunk branches (depth 0).
+    let trunks: Vec<&DendriteBranch> = branches.iter().filter(|b| b.depth == 0).collect();
+    if !trunks.is_empty() && !an.sessions.is_empty() {
+        let n = an.sessions.len().min(28);
+        let per_trunk = n.div_ceil(trunks.len());
+        for (k, st) in an.sessions.iter().take(n).enumerate() {
+            let trunk = trunks[k % trunks.len()];
+            let idx = k / trunks.len();
+            let t = (idx as f32 + 1.0) / (per_trunk as f32 + 1.0);
+            let pos = sample_path(&trunk.points, t);
+            let mat = match st {
+                SessionStatus::Completed => &mats.session_done,
+                _ => &mats.session_missed,
+            };
+            commands.spawn((
+                Mesh3d(quad.clone()),
+                MeshMaterial3d(mat.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::ZERO),
+                Billboard,
+                LodReveal { base_scale: 0.45, start: 0.55, full: 0.85 },
+                SceneItem,
+            ));
+        }
+    }
+
+    // Terminal twigs at the leaf tips: packages first, then cross-domain research proxies.
+    let tips: Vec<Vec3> = branches
+        .iter()
+        .filter(|b| b.leaf)
+        .filter_map(|b| b.points.last().copied())
+        .collect();
+    if !tips.is_empty() {
+        let mut ti = 0usize;
+        let mut place = |commands: &mut Commands, mat: &Handle<StandardMaterial>, scale: f32| {
+            let pos = tips[ti % tips.len()];
+            ti += 1;
+            commands.spawn((
+                Mesh3d(quad.clone()),
+                MeshMaterial3d(mat.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::ZERO),
+                Billboard,
+                LodReveal { base_scale: scale, start: 0.45, full: 0.78 },
+                SceneItem,
+            ));
+        };
+        for pkg in &an.packages {
+            let mat = if pkg.active { &mats.package_active } else { &mats.package_done };
+            place(commands, mat, 0.9);
+        }
+        for _ in 0..an.research_proxies.min(8) {
+            place(commands, &mats.research, 0.7);
+        }
+    }
+}
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
     let cam = OrbitCamera {
@@ -166,6 +264,7 @@ fn build_scene(
             return None;
         }
     };
+    let anatomy = build_anatomy(&snap);
     if snap.entities.is_empty() {
         warn!("no data in '{path}'. Seed with:  nbe --db {path} seed");
         return None;
@@ -270,6 +369,7 @@ fn build_scene(
         .collect();
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
+    let anatomy_mats = AnatomyMats::build(materials, &glow);
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
         let (r, g, b) = kind.base_color();
         materials.add(StandardMaterial {
@@ -485,8 +585,14 @@ fn build_scene(
                 Kind::Ledger => 0,
             };
             if dcount > 0 {
+                let tree = dendrite_tree(p, dcount, r, hash_u64(id));
+                // Embed this neuron's data anatomy (session beads + package/research twigs) directly
+                // onto the branches before the mesh is consumed — woven in, never orbiting.
+                if let Some(an) = anatomy.get(id) {
+                    embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
+                }
                 commands.spawn((
-                    Mesh3d(meshes.add(dendrite_mesh(p, dcount, r, hash_u64(id)))),
+                    Mesh3d(meshes.add(tree.mesh)),
                     MeshMaterial3d(themes[&network].2.clone()),
                     Transform::default(),
                     SceneItem,

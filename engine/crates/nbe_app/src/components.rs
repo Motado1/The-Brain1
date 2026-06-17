@@ -126,6 +126,17 @@ pub(crate) struct PulseAssets {
     pub(crate) material: HashMap<Network, Handle<StandardMaterial>>,
 }
 
+/// A data-anatomy element (session bead, package/research twig) that only materialises at close
+/// range: its rendered scale ramps `0 → base_scale` as the global LOD zoom-detail crosses
+/// `[start, full]` (cubic-smoothed), so the finest data nodes fade in on deep zoom instead of
+/// cluttering the galactic view. Driven by `lod::apply_lod_reveal`.
+#[derive(Component)]
+pub(crate) struct LodReveal {
+    pub(crate) base_scale: f32,
+    pub(crate) start: f32,
+    pub(crate) full: f32,
+}
+
 /// Tags every entity the scene builder spawns (nodes, edges, sparks) so a rebuild can despawn the
 /// whole graph and re-create it from the DB — the camera/HUD (untagged) persist.
 #[derive(Component)]
