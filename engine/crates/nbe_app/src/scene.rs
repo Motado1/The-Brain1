@@ -18,7 +18,7 @@ use crate::geometry::*;
 use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
-use crate::shaders::SomaMaterial;
+use crate::shaders::{PulseWaveMaterial, SomaMaterial};
 use crate::tuning::*;
 
 /// Pre-built additive glow materials for the data anatomy (one palette, reused for every neuron).
@@ -184,6 +184,7 @@ pub(crate) fn load_graph(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
+    mut waves: ResMut<Assets<PulseWaveMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -193,6 +194,7 @@ pub(crate) fn load_graph(
         meshes.as_mut(),
         materials.as_mut(),
         somas.as_mut(),
+        waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -210,6 +212,7 @@ pub(crate) fn apply_reload(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
+    mut waves: ResMut<Assets<PulseWaveMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -227,6 +230,7 @@ pub(crate) fn apply_reload(
         meshes.as_mut(),
         materials.as_mut(),
         somas.as_mut(),
+        waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -242,6 +246,7 @@ fn build_scene(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     somas: &mut Assets<SomaMaterial>,
+    waves: &mut Assets<PulseWaveMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
     path: &str,
@@ -573,7 +578,6 @@ fn build_scene(
 
             graph.nodes.push(GraphNode {
                 entity: node,
-                network,
                 activation: act,
                 threshold: thr,
                 out: Vec::new(),
@@ -634,32 +638,14 @@ fn build_scene(
         jitter: 0.015,
         seed: 0x00E6,
     };
-    let add_tube = |commands: &mut Commands,
-                    meshes: &mut Assets<Mesh>,
-                    mat: Handle<StandardMaterial>,
-                    curve: &[Vec3],
-                    radii: &[f32]| {
-        commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(curve, radii, 8))),
-            MeshMaterial3d(mat),
-            Transform::default(),
-            SceneItem,
-        ));
-    };
     // Wire an undirected connection into the graph as two directed edges sharing one `channel`
     // (so traffic control can lock both directions together) for propagation.
-    fn wire(graph: &mut BrainGraph, si: usize, di: usize, curve: &[Vec3], channel: usize) {
+    fn wire(graph: &mut BrainGraph, si: usize, di: usize, channel: usize) {
         let e1 = graph.edges.len();
-        graph.edges.push(GraphEdge {
-            path: curve.to_vec(),
-            target: di,
-            channel,
-        });
+        graph.edges.push(GraphEdge { target: di, channel });
         graph.nodes[si].out.push(e1);
-        let mut rev = curve.to_vec();
-        rev.reverse();
         let e2 = graph.edges.len();
-        graph.edges.push(GraphEdge { path: rev, target: si, channel });
+        graph.edges.push(GraphEdge { target: si, channel });
         graph.nodes[di].out.push(e2);
     }
 
@@ -670,7 +656,7 @@ fn build_scene(
     const NEIGHBOURS: usize = 3;
     let mut channel_count = 0usize;
     for (&network, ids) in &groups {
-        let edge_mat = themes[&network].1.clone();
+        let (nr, ng, nb) = theme_rgb(network);
         // Small additive glow dots strung along each filament — the "beads of light" of the refs.
         let bead_mat = themes[&network].3.clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
@@ -702,7 +688,22 @@ fn build_scene(
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
                 // Thin waist, flaring wide where it grips each soma.
                 let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.045);
-                add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
+                // Unified glassy tube material (same Fresnel as the dendrites) that also carries the
+                // travelling pulse wave. `fwd_edge` = the i→j directed edge wire() is about to push,
+                // so the wave system can orient a pulse's `t` to this tube's uv.x.
+                let fwd_edge = graph.edges.len();
+                let wave_mat = waves.add(PulseWaveMaterial {
+                    color: LinearRgba::new(nr, ng, nb, 1.0),
+                    rest: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, 0.0),
+                    wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
+                });
+                commands.spawn((
+                    Mesh3d(meshes.add(tube_mesh(&curve, &radii, 8))),
+                    MeshMaterial3d(wave_mat.clone()),
+                    Transform::default(),
+                    ConnectionWave { channel: channel_count, fwd_edge, mat: wave_mat },
+                    SceneItem,
+                ));
                 // Additive glow dot at each junction — light compounds where roots meet the surface.
                 for jp in [a, b] {
                     commands.spawn((
@@ -724,21 +725,11 @@ fn build_scene(
                         SceneItem,
                     ));
                 }
-                wire(&mut graph, idxs[i], idxs[j], &curve, channel_count);
+                wire(&mut graph, idxs[i], idxs[j], channel_count);
                 channel_count += 1;
             }
         }
     }
-
-    // Pulse asset: a soft round glow sprite (radial-gradient billboard), not a hard shape — so a
-    // travelling signal reads as a gentle blob of light drifting along the filament. One per network
-    // so the pulse takes that network's hue.
-    let pulse_materials: HashMap<Network, Handle<StandardMaterial>> =
-        themes.iter().map(|(&net, mats)| (net, mats.3.clone())).collect();
-    commands.insert_resource(PulseAssets {
-        mesh: halo_quad.clone(),
-        material: pulse_materials,
-    });
 
     // Ambient dust motes drifting in each network's volume (the bokeh specks).
     let mote_mat = materials.add(StandardMaterial {

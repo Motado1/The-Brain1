@@ -4,11 +4,14 @@ use bevy::post_process::dof::DepthOfField;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use std::collections::HashMap;
+
 use crate::components::*;
 use crate::geometry::*;
 use crate::interaction::Dissolving;
 use crate::lod::{LodBand, LodState};
 use crate::nav::*;
+use crate::shaders::PulseWaveMaterial;
 use crate::tuning::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -196,25 +199,61 @@ pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Tr
     }
 }
 
-/// Spawn one travelling pulse along directed edge `edge_idx`, coloured for its network. A soft,
-/// slow blob of light drifting down the filament.
-fn spawn_pulse(commands: &mut Commands, assets: &PulseAssets, graph: &BrainGraph, edge_idx: usize, seed: u64) {
-    let edge = &graph.edges[edge_idx];
-    // Intra-network edge, so the source and target share a network → colour by the target's.
-    let net = graph.nodes[edge.target].network;
-    let Some(mat) = assets.material.get(&net) else {
+/// Spawn one travelling pulse along directed edge `edge_idx`. The pulse is now a *logical* timeline
+/// (no visible mesh) — `drive_pulse_waves` reads its `t` to surge the Gaussian wave along the tube.
+fn spawn_pulse(commands: &mut Commands, graph: &BrainGraph, edge_idx: usize, seed: u64) {
+    let Some(edge) = graph.edges.get(edge_idx) else {
         return;
     };
     let mut s = seed | 1;
-    let speed = 0.12 + lcg(&mut s) * 0.12;
+    let speed = PULSE_SPEED * (0.85 + lcg(&mut s) * 0.3);
     commands.spawn((
-        Mesh3d(assets.mesh.clone()),
-        MeshMaterial3d(mat.clone()),
-        Transform::from_translation(edge.path[0]),
         Pulse { edge: edge_idx, t: 0.0, speed, target: edge.target, energy: PULSE_ENERGY },
-        Billboard,
         SceneItem,
     ));
+}
+
+/// Drive the continuous Gaussian energy wave along each connection from its active pulse timeline.
+/// Only materials that are active (or just went idle) are touched, so idle tubes aren't re-uploaded.
+pub(crate) fn drive_pulse_waves(
+    graph: Res<BrainGraph>,
+    pulses: Query<&Pulse>,
+    conns: Query<&ConnectionWave>,
+    mut mats: ResMut<Assets<PulseWaveMaterial>>,
+    mut active: ResMut<WaveActive>,
+) {
+    let by_channel: HashMap<usize, &ConnectionWave> = conns.iter().map(|c| (c.channel, c)).collect();
+    // Channel → wave centre this frame (oriented to the tube's uv via the forward edge).
+    let mut now: HashMap<usize, f32> = HashMap::new();
+    for p in &pulses {
+        let Some(edge) = graph.edges.get(p.edge) else {
+            continue;
+        };
+        let Some(cw) = by_channel.get(&edge.channel) else {
+            continue;
+        };
+        let tt = p.t.clamp(0.0, 1.0);
+        let t_center = if p.edge == cw.fwd_edge { tt } else { 1.0 - tt };
+        now.insert(edge.channel, t_center);
+    }
+    for (&ch, &t_center) in &now {
+        if let Some(cw) = by_channel.get(&ch) {
+            if let Some(m) = mats.get_mut(&cw.mat) {
+                m.wave = Vec4::new(t_center, PULSE_WAVE_AMP, PULSE_WIDTH, 0.0);
+            }
+        }
+    }
+    // Reset connections that were waving last frame but aren't now.
+    for ch in active.0.iter() {
+        if !now.contains_key(ch) {
+            if let Some(cw) = by_channel.get(ch) {
+                if let Some(m) = mats.get_mut(&cw.mat) {
+                    m.wave = Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0);
+                }
+            }
+        }
+    }
+    active.0 = now.keys().copied().collect();
 }
 
 /// Integrate-and-fire: each neuron charges from its activation; when it crosses threshold it flares
@@ -224,7 +263,6 @@ pub(crate) fn fire_scheduler(
     time: Res<Time>,
     graph: Res<BrainGraph>,
     mut traffic: ResMut<EdgeTraffic>,
-    pulse: Option<Res<PulseAssets>>,
     mut commands: Commands,
     mut q: Query<(&Neuron, &mut Firing), Without<Dissolving>>,
 ) {
@@ -239,23 +277,21 @@ pub(crate) fn fire_scheduler(
         if firing.accumulator >= node.threshold {
             firing.accumulator = 0.0;
             firing.intensity = 1.0;
-            if let Some(assets) = &pulse {
-                let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
-                for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
-                    let c = graph.edges[e].channel;
-                    let Some(ch) = traffic.channels.get_mut(c) else {
-                        continue;
-                    };
-                    if !ch.busy {
-                        // claim the connection and send the pulse.
-                        ch.busy = true;
-                        spawn_pulse(&mut commands, assets, &graph, e, seed);
-                    } else if ch.queue.len() < QUEUE_CAP && !ch.queue.contains(&e) {
-                        // connection in use — queue this direction behind the current pulse.
-                        ch.queue.push_back(e);
-                    }
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let mut seed = neuron.0 as u64 ^ time.elapsed().as_nanos() as u64;
+            for &e in node.out.iter().take(MAX_PULSES_PER_FIRE) {
+                let c = graph.edges[e].channel;
+                let Some(ch) = traffic.channels.get_mut(c) else {
+                    continue;
+                };
+                if !ch.busy {
+                    // claim the connection and send the pulse.
+                    ch.busy = true;
+                    spawn_pulse(&mut commands, &graph, e, seed);
+                } else if ch.queue.len() < QUEUE_CAP && !ch.queue.contains(&e) {
+                    // connection in use — queue this direction behind the current pulse.
+                    ch.queue.push_back(e);
                 }
+                seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             }
         }
     }
@@ -303,24 +339,17 @@ pub(crate) fn advance_pulses(
     time: Res<Time>,
     graph: Res<BrainGraph>,
     mut traffic: ResMut<EdgeTraffic>,
-    assets: Option<Res<PulseAssets>>,
     mut commands: Commands,
-    mut pulses: Query<(Entity, &mut Pulse, &mut Transform)>,
+    mut pulses: Query<(Entity, &mut Pulse)>,
     mut fire: Query<&mut Firing>,
 ) {
     let dt = time.delta_secs();
-    for (ent, mut pulse, mut tr) in &mut pulses {
+    for (ent, mut pulse) in &mut pulses {
         let Some(edge) = graph.edges.get(pulse.edge) else {
             commands.entity(ent).despawn();
             continue;
         };
         pulse.t += pulse.speed * dt;
-        let tt = pulse.t.min(1.0);
-        // Soft round glow that fades in/out along the path (rotation is handled by face_camera, so
-        // it always faces us as a shapeless blob — no hard streak).
-        tr.translation = sample_path(&edge.path, tt);
-        let env = (tt * std::f32::consts::PI).sin().max(0.0);
-        tr.scale = Vec3::splat(2.4 * (0.35 + 0.65 * env));
         if pulse.t >= 1.0 {
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {
@@ -331,9 +360,7 @@ pub(crate) fn advance_pulses(
             let channel = edge.channel;
             if let Some(ch) = traffic.channels.get_mut(channel) {
                 if let Some(next) = ch.queue.pop_front() {
-                    if let Some(assets) = &assets {
-                        spawn_pulse(&mut commands, assets, &graph, next, ent.to_bits());
-                    }
+                    spawn_pulse(&mut commands, &graph, next, ent.to_bits());
                 } else {
                     ch.busy = false;
                 }

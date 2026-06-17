@@ -6,6 +6,17 @@
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
+**Continuous pulse WAVE (replacing dot pulses) — Slice 1 of 3 done.** `PulseWaveMaterial`
+(`pulse_wave.wgsl` + `shaders.rs`): the soma's glassy Fresnel rest state PLUS a travelling Gaussian
+energy surge `exp(-(uv.x - t_center)²/2w²)` along the tube (HDR crest → bloom = liquid wave). The old
+billboard `Pulse` is now a logical timeline only; `drive_pulse_waves` (systems.rs) maps each active
+`Pulse.t` → its connection tube's `wave` uniform (oriented via `ConnectionWave.fwd_edge`), touching
+only active/just-idle materials (`WaveActive`). Connections now wear this unified glassy material
+(match the dendrites). Tunables `PULSE_SPEED/PULSE_WIDTH/PULSE_WAVE_AMP`. ⚠ runtime WGSL — naga
+validates on the GPU. **NEXT: Slice 2** = extend the wave to dendrite trees (fire surges out from the
+soma); **Slice 3** = radius "pump" (vertex displacement). Removed `PulseAssets` + the dot billboard.
+
+
 **Cosmic-scaling workspace (4-system arch, in progress).** Goal: abandon orbit/satellite placement;
 all data lives inside one continuous fractal-dendrite anatomy, revealed by camera distance.
 - **System 1 (LOD) — ANCHOR LAID (`lod.rs`).** `compute_lod` reads the camera each frame: global band

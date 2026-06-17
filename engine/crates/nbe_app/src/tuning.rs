@@ -14,6 +14,12 @@ pub(crate) const HALO_SWELL: f32 = 0.4;
 /// Energy a propagation pulse deposits in its target (threshold ~0.5, so it takes coincidence to
 /// re-fire — cascades stay sparse and fade).
 pub(crate) const PULSE_ENERGY: f32 = 0.16;
+/// Continuous pulse wave: fraction of a connection's length the energy crest travels per second.
+pub(crate) const PULSE_SPEED: f32 = 0.5;
+/// Gaussian half-width (sigma) of the wave as a fraction of the path — a soft elongated window.
+pub(crate) const PULSE_WIDTH: f32 = 0.22;
+/// Emissive amplitude at the wave crest (HDR, so bloom blurs the surge into a bleeding wave).
+pub(crate) const PULSE_WAVE_AMP: f32 = 2.6;
 /// Max pulses one fire emits (caps hub blow-ups; kept low so the scene stays calm).
 pub(crate) const MAX_PULSES_PER_FIRE: usize = 3;
 /// Per-network dust mote count — dense, like the bokeh-filled reference images.

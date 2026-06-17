@@ -108,6 +108,7 @@ fn main() {
         .insert_resource(UiPointer::default())
         .insert_resource(Picker::default())
         .insert_resource(LodState::default())
+        .insert_resource(WaveActive::default())
         .insert_resource(InteractionState::default())
         .add_message::<UiRequestSprout>()
         .add_message::<UiRequestLink>()
@@ -132,6 +133,7 @@ fn main() {
                 fire_scheduler,
                 fire_render,
                 advance_pulses,
+                drive_pulse_waves,
                 drift_motes,
                 apply_reload,
             ),

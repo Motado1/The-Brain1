@@ -1,8 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use bevy::prelude::*;
-
-use crate::domain::Network;
 
 #[derive(Resource)]
 pub(crate) struct DbPath(pub(crate) String);
@@ -90,14 +88,12 @@ pub(crate) struct BrainGraph {
 
 pub(crate) struct GraphNode {
     pub(crate) entity: Entity,
-    pub(crate) network: Network,
     pub(crate) activation: f32,
     pub(crate) threshold: f32,
     pub(crate) out: Vec<usize>, // edge indices leaving this node
 }
 
 pub(crate) struct GraphEdge {
-    pub(crate) path: Vec<Vec3>,
     pub(crate) target: usize,
     /// The undirected connection this directed edge belongs to (both directions share one channel,
     /// so locking it enforces the directional mutex).
@@ -118,13 +114,20 @@ pub(crate) struct Channel {
     pub(crate) queue: VecDeque<usize>, // directed-edge indices waiting to traverse
 }
 
-/// Shared mesh + per-network glow material for spawning propagation pulses at runtime, so a pulse
-/// matches the hue of the network it travels in.
-#[derive(Resource)]
-pub(crate) struct PulseAssets {
-    pub(crate) mesh: Handle<Mesh>,
-    pub(crate) material: HashMap<Network, Handle<StandardMaterial>>,
+/// Links a connection's tube to its traffic `channel`, its forward directed-edge index (so a pulse's
+/// `t` maps to uv direction correctly), and its `PulseWaveMaterial` so the wave system can drive the
+/// travelling Gaussian surge along it.
+#[derive(Component)]
+pub(crate) struct ConnectionWave {
+    pub(crate) channel: usize,
+    pub(crate) fwd_edge: usize,
+    pub(crate) mat: Handle<crate::shaders::PulseWaveMaterial>,
 }
+
+/// Channels with an active wave last frame, so the wave system only resets ones that just went idle
+/// (rather than re-uploading every connection material every frame).
+#[derive(Resource, Default)]
+pub(crate) struct WaveActive(pub(crate) std::collections::HashSet<usize>);
 
 /// A data-anatomy element (session bead, package/research twig) that only materialises at close
 /// range: its rendered scale ramps `0 → base_scale` as the global LOD zoom-detail crosses
