@@ -201,16 +201,6 @@ pub(crate) fn axon_radii(n: usize, r_start: f32, r_end: f32, waist: f32) -> Vec<
         .collect()
 }
 
-/// Dendrite profile: thick at the root, tapering smoothly to a hair-thin tip.
-pub(crate) fn dendrite_radii(n: usize, base: f32) -> Vec<f32> {
-    (0..n)
-        .map(|i| {
-            let t = i as f32 / (n - 1).max(1) as f32;
-            base * (1.0 - t).powf(1.5) + 0.012
-        })
-        .collect()
-}
-
 /// A dim, hair-thin tangle of background micro-fibers filling a network's volume — non-interactive
 /// "noise" that simulates infinite biological depth and scale contrast. Many filaments are merged
 /// into one mesh (one draw call).
@@ -248,26 +238,64 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
     let mut s = seed | 1;
     let mut builder = TubeBuilder::default();
     for _ in 0..count {
-        let segs = 5 + (lcg(&mut s) * 3.0) as usize;
-        let seg_len = node_r * (1.4 + lcg(&mut s) * 1.2);
         let mut dir =
             Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5).normalize_or_zero();
         if dir.length_squared() < 1e-6 {
             dir = Vec3::Y;
         }
-        let mut p = node;
-        let mut pts = vec![p];
-        for _ in 0..segs {
-            let jitter =
-                Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5) * 0.55;
-            dir = (dir + jitter).normalize_or_zero();
-            p += dir * seg_len;
-            pts.push(p);
-        }
-        let radii = dendrite_radii(pts.len(), node_r * 0.12);
-        builder.add(&pts, &radii, 5);
+        // The trunk begins just inside the soma surface (along its outgoing direction) so its wide
+        // root fuses with the cell body, then tapers and branches out into a fractal tree.
+        let start = node + dir * node_r * crate::tuning::DEND_EMBED;
+        grow_dendrite(&mut builder, &mut s, start, dir, node_r * crate::tuning::DEND_ROOT_R, node_r, 0);
     }
     builder.build()
+}
+
+/// Recursively grow one tapering dendrite branch, then (until the depth budget runs out) split it
+/// into 2–3 finer children that continue from its tip — the branching tree of the reference
+/// neurons. Radii taper from `r0` to `r1`; children inherit `r1` so the tree stays continuous
+/// (thick trunk → hair-thin twigs).
+fn grow_dendrite(
+    builder: &mut TubeBuilder,
+    s: &mut u64,
+    start: Vec3,
+    mut dir: Vec3,
+    r0: f32,
+    node_r: f32,
+    depth: u32,
+) {
+    let leaf = depth >= crate::tuning::DEND_BRANCH_DEPTH;
+    let r1 = if leaf { 0.012 } else { r0 * crate::tuning::DEND_BRANCH_TAPER };
+    // A few gently wandering segments; branches get shorter the deeper (finer) they are.
+    let segs = 2 + (lcg(s) * 2.0) as usize;
+    let seg_len = node_r * (0.7 + lcg(s) * 0.7) / (1.0 + depth as f32 * 0.5);
+    let mut p = start;
+    let mut pts = vec![p];
+    for _ in 0..segs {
+        let j = Vec3::new(lcg(s) - 0.5, lcg(s) - 0.5, lcg(s) - 0.5) * 0.5;
+        dir = (dir + j).normalize_or_zero();
+        p += dir * seg_len;
+        pts.push(p);
+    }
+    let n = pts.len();
+    let radii: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / (n - 1) as f32;
+            (r0 * (1.0 - t) + r1 * t).max(0.01)
+        })
+        .collect();
+    builder.add(&pts, &radii, 5);
+    if !leaf {
+        let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
+        for _ in 0..nchild {
+            let spread = Vec3::new(lcg(s) - 0.5, lcg(s) - 0.5, lcg(s) - 0.5) * 0.9;
+            let mut cdir = (dir + spread).normalize_or_zero();
+            if cdir.length_squared() < 1e-6 {
+                cdir = dir;
+            }
+            grow_dendrite(builder, s, p, cdir, r1, node_r, depth + 1);
+        }
+    }
 }
 
 /// Smooth multi-octave pseudo-noise in [-1, 1] from a direction on the sphere — cheap, deterministic
@@ -337,6 +365,27 @@ pub(crate) fn glow_texture() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn vertex_count(mesh: &Mesh) -> usize {
+        match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(VertexAttributeValues::Float32x3(p)) => p.len(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn dendrites_branch_into_a_tree() {
+        // A branching tree has many more vertices than its trunk count alone, and every position is
+        // finite (no NaNs from a degenerate direction). Deterministic for a given seed.
+        let mesh = dendrite_mesh(Vec3::ZERO, 5, 1.0, 0xABCD);
+        let n = vertex_count(&mesh);
+        assert!(n > 5 * 10, "expected a dense branched tree, got {n} verts");
+        if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            assert!(p.iter().flatten().all(|f| f.is_finite()), "all positions finite");
+        }
+        // Same seed → identical geometry (stable across reloads).
+        assert_eq!(n, vertex_count(&dendrite_mesh(Vec3::ZERO, 5, 1.0, 0xABCD)));
+    }
 
     #[test]
     fn displaced_sphere_stays_within_bump_bounds() {

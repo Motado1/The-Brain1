@@ -14,6 +14,12 @@
   in `tuning.rs`, `scene.rs` web loop); an additive **junction glow** dot sits at each anchor so light
   compounds where roots meet the surface (`JUNCTION_GLOW`). New tunables + 2 unit tests in `geometry.rs`.
   *Awaiting desktop screenshot to tune `SOMA_BUMP`/flare/glow.*
+- **Branching dendrites done — geometry, headless-verified.** `geometry.rs::dendrite_mesh` now grows
+  a fractal tree (`grow_dendrite` recurses `DEND_BRANCH_DEPTH` levels, 2–3 children, tapering thick
+  trunk → hair tips), starting each trunk just inside the soma surface (`DEND_EMBED`/`DEND_ROOT_R`)
+  so it fuses smoothly — the reference-neuron structure. Knobs in `tuning.rs`; unit test in `geometry.rs`.
+  *Awaiting desktop screenshot.* (NOTE: an earlier glowing-tube `FilamentMaterial` overhaul was tried
+  and **reverted** — owner preferred the granular-soma baseline; don't reintroduce fat glowing tubes.)
 - Phase 2 (NOT built, gated on Phase 1 looking right): procedural 3D noise in `soma.wgsl` for smoky
   micro-crevice surface scatter — runtime-WGSL (naga-error risk).
 

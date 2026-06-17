@@ -48,3 +48,15 @@ pub(crate) const ROOT_EMBED: f32 = 0.82;
 /// Billboard scale of the additive glow dot placed at each filament→soma junction (Target 3 —
 /// light compounds where roots meet the surface). Slightly larger than the mid-filament beads.
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;
+
+// ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
+/// Where a dendrite trunk begins, as a fraction of the soma radius — just inside the surface so the
+/// wide root fuses smoothly with the cell body (the "smooth root trunk" of the references).
+pub(crate) const DEND_EMBED: f32 = 0.6;
+/// Trunk root width as a fraction of the soma radius; it tapers from here out through the branches.
+pub(crate) const DEND_ROOT_R: f32 = 0.15;
+/// How many times a dendrite splits into finer children (recursion depth) — the fractal tree.
+pub(crate) const DEND_BRANCH_DEPTH: u32 = 3;
+/// Each branch ends at this fraction of its start width; its children continue from there, so the
+/// tree is continuous thick-trunk → hair-thin twigs.
+pub(crate) const DEND_BRANCH_TAPER: f32 = 0.55;
