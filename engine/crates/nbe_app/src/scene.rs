@@ -17,7 +17,7 @@ use crate::geometry::*;
 use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
-use crate::shaders::SomaMaterial;
+use crate::shaders::{FilamentMaterial, SomaMaterial};
 use crate::tuning::*;
 
 fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
@@ -86,6 +86,7 @@ pub(crate) fn load_graph(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
+    mut filaments: ResMut<Assets<FilamentMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -95,6 +96,7 @@ pub(crate) fn load_graph(
         meshes.as_mut(),
         materials.as_mut(),
         somas.as_mut(),
+        filaments.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -112,6 +114,7 @@ pub(crate) fn apply_reload(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
+    mut filaments: ResMut<Assets<FilamentMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -129,6 +132,7 @@ pub(crate) fn apply_reload(
         meshes.as_mut(),
         materials.as_mut(),
         somas.as_mut(),
+        filaments.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &db_path.0,
@@ -144,6 +148,7 @@ fn build_scene(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     somas: &mut Assets<SomaMaterial>,
+    filaments: &mut Assets<FilamentMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
     path: &str,
@@ -296,15 +301,14 @@ fn build_scene(
         Network::Business => (1.0, 0.55, 0.15),
         Network::Research => (0.5, 0.42, 1.0),
     };
-    type ThemeMats = (
-        Handle<StandardMaterial>, // membrane
-        Handle<StandardMaterial>, // edge
-        Handle<StandardMaterial>, // dendrite
-        Handle<StandardMaterial>, // pulse
-    );
-    let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
+    // Additive glow sprite per network, shared by the travelling pulses and the filament beads.
+    let mut pulse_of: HashMap<Network, Handle<StandardMaterial>> = HashMap::new();
     // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader).
     let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
+    // Per-network glowing-tendril materials (custom shader): (connection edges, dendrites). Edges
+    // glow at both root ends (both are somas); dendrites glow at the root and fade to the tip.
+    let mut filament_of: HashMap<Network, (Handle<FilamentMaterial>, Handle<FilamentMaterial>)> =
+        HashMap::new();
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
         soma_of.insert(
@@ -314,42 +318,25 @@ fn build_scene(
                 params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
             }),
         );
-        // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
-        // colour from the LIGHT — the bright cores blooming through/over it and the scene lights —
-        // rather than glowing its own hue. Only a faint theme whisper so dim, far-from-core tissue
-        // still hints at its network. (The cores, halos, pulses, and motes remain the real emitters.)
-        // Translucent structural body — kept very faint so it gives form without over-blending
-        // (and thus flickering) against the additive glow that sits at the same point.
-        let membrane = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.5, 0.48, 0.46, 0.13),
-            emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.4,
-            metallic: 0.0,
-            ..default()
-        });
-        // Thin, *glowing* filaments — like lit fibre-optic threads (the reference look). Now that
-        // they're thin, a colour glow reads as light, not orange plastic. Blend + emissive + bloom.
-        let edge = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.10),
-            emissive: LinearRgba::rgb(r * 0.6, g * 0.6, b * 0.6),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.06,
-            metallic: 0.0,
-            reflectance: 0.7,
-            ..default()
-        });
-        let dendrite = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.10),
-            emissive: LinearRgba::rgb(r * 0.45, g * 0.45, b * 0.45),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.1,
-            metallic: 0.0,
-            ..default()
-        });
+        let fil_params = Vec4::new(FIL_RIM_POWER, FIL_INTENSITY, FIL_FLOW_SPEED, FIL_FLOW_STRENGTH);
+        filament_of.insert(
+            net,
+            (
+                filaments.add(FilamentMaterial {
+                    tint: LinearRgba::new(r, g, b, 0.85),
+                    params: fil_params,
+                    grad: Vec4::new(EDGE_GLOW_END, EDGE_GLOW_END, EDGE_GLOW_MID, FIL_GRAD_POWER),
+                }),
+                filaments.add(FilamentMaterial {
+                    tint: LinearRgba::new(r, g, b, 0.85),
+                    params: fil_params,
+                    grad: Vec4::new(DEND_GLOW_ROOT, DEND_GLOW_TIP, DEND_GLOW_TIP, FIL_GRAD_POWER),
+                }),
+            ),
+        );
+        // The connection + dendrite tubes now use the glowing FilamentMaterial above (their own
+        // Fresnel/gradient/flow shader); the pulse/bead material below is the only StandardMaterial
+        // tissue left — an additive glow sprite shared by the travelling pulses and the filament beads.
         let pulse = materials.add(StandardMaterial {
             base_color: Color::LinearRgba(LinearRgba::new(r * 2.6, g * 2.6, b * 2.6, 1.0)),
             base_color_texture: Some(glow.clone()),
@@ -358,7 +345,7 @@ fn build_scene(
             cull_mode: None,
             ..default()
         });
-        themes.insert(net, (membrane, edge, dendrite, pulse));
+        pulse_of.insert(net, pulse);
     }
 
     // Per-entity firing threshold (defaults 0.5).
@@ -487,7 +474,7 @@ fn build_scene(
             if dcount > 0 {
                 commands.spawn((
                     Mesh3d(meshes.add(dendrite_mesh(p, dcount, r, hash_u64(id)))),
-                    MeshMaterial3d(themes[&network].2.clone()),
+                    MeshMaterial3d(filament_of[&network].1.clone()),
                     Transform::default(),
                     SceneItem,
                 ));
@@ -520,11 +507,12 @@ fn build_scene(
     };
     let add_tube = |commands: &mut Commands,
                     meshes: &mut Assets<Mesh>,
-                    mat: Handle<StandardMaterial>,
+                    mat: Handle<FilamentMaterial>,
                     curve: &[Vec3],
-                    radii: &[f32]| {
+                    radii: &[f32],
+                    seed: u64| {
         commands.spawn((
-            Mesh3d(meshes.add(tube_mesh(curve, radii, 8))),
+            Mesh3d(meshes.add(tube_mesh_organic(curve, radii, 8, TUBE_WOBBLE, seed))),
             MeshMaterial3d(mat),
             Transform::default(),
             SceneItem,
@@ -554,9 +542,9 @@ fn build_scene(
     const NEIGHBOURS: usize = 3;
     let mut channel_count = 0usize;
     for (&network, ids) in &groups {
-        let edge_mat = themes[&network].1.clone();
+        let edge_mat = filament_of[&network].0.clone();
         // Small additive glow dots strung along each filament — the "beads of light" of the refs.
-        let bead_mat = themes[&network].3.clone();
+        let bead_mat = pulse_of[&network].clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
         let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
@@ -586,7 +574,7 @@ fn build_scene(
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
                 // Thin waist, flaring wide where it grips each soma.
                 let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.045);
-                add_tube(commands, meshes, edge_mat.clone(), &curve, &radii);
+                add_tube(commands, meshes, edge_mat.clone(), &curve, &radii, seed);
                 // Additive glow dot at each junction — light compounds where roots meet the surface.
                 for jp in [a, b] {
                     commands.spawn((
@@ -617,8 +605,7 @@ fn build_scene(
     // Pulse asset: a soft round glow sprite (radial-gradient billboard), not a hard shape — so a
     // travelling signal reads as a gentle blob of light drifting along the filament. One per network
     // so the pulse takes that network's hue.
-    let pulse_materials: HashMap<Network, Handle<StandardMaterial>> =
-        themes.iter().map(|(&net, mats)| (net, mats.3.clone())).collect();
+    let pulse_materials: HashMap<Network, Handle<StandardMaterial>> = pulse_of.clone();
     commands.insert_resource(PulseAssets {
         mesh: halo_quad.clone(),
         material: pulse_materials,

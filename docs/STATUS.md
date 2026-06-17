@@ -8,14 +8,18 @@
 
 **Visual: granular-soma overhaul (hybrid look) in flight** (per-item desktop checklist in
 `docs/VISUAL_VERIFICATION.md`). Bevy **0.18.1**.
-- **Phase 1 done — geometry, headless-verified, no shader risk.** Somas are now lumpy **displaced
-  icospheres** (`geometry.rs::displaced_sphere`, 6-mesh pool picked per node) for a granular,
-  light-catching mass; filaments **embed + flare** into the soma like roots (`ROOT_EMBED`/`ROOT_FLARE`
-  in `tuning.rs`, `scene.rs` web loop); an additive **junction glow** dot sits at each anchor so light
-  compounds where roots meet the surface (`JUNCTION_GLOW`). New tunables + 2 unit tests in `geometry.rs`.
-  *Awaiting desktop screenshot to tune `SOMA_BUMP`/flare/glow.*
-- Phase 2 (NOT built, gated on Phase 1 looking right): procedural 3D noise in `soma.wgsl` for smoky
-  micro-crevice surface scatter — runtime-WGSL (naga-error risk).
+- **Soma Phase 1 — VERIFIED ✅ (owner screenshot, gorgeous).** Lumpy **displaced icospheres**
+  (`geometry.rs::displaced_sphere`, 6-mesh pool) = granular light-catching mass; filaments **embed +
+  flare** into the soma like roots (`ROOT_EMBED`/`ROOT_FLARE`); additive **junction glow** at each
+  anchor (`JUNCTION_GLOW`). Knobs in `tuning.rs`; 2 unit tests in `geometry.rs`.
+- **Dendrites/connections — `FilamentMaterial` (NEW runtime shader, awaiting desktop verify).** The
+  tubes now wear the soma's Fresnel "glass tendril" look + a length glow gradient + flowing light
+  bands (`crates/nbe_app/src/filament.wgsl`, registered in `shaders.rs`), plus organic radius
+  **wobble** (`TUBE_WOBBLE`). All knobs `FIL_*`/`EDGE_GLOW_*`/`DEND_GLOW_*` in `tuning.rs`. ⚠ The
+  flow uses `globals.time` via `bevy_pbr::mesh_view_bindings::{view, globals}` — if strands render
+  wrong it's a naga error on that import; paste the console log. Compiles + clippy + 7 app tests green.
+- Soma Phase 2 (NOT built): procedural 3D noise in `soma.wgsl` for smoky micro-crevice surface
+  scatter — another runtime-WGSL step, optional now that the body already reads great.
 
 Earlier shader work (still pending desktop verify):
 - Phase 1 done (`a737743`): beads of light on filaments, hair-thin background fibers, cooler

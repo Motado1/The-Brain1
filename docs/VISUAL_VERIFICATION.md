@@ -1,6 +1,24 @@
 # Pending visual / interaction verification
 
-## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)
+## ⏳⏳⏳⏳ NEWEST — glowing dendrites / connections (`FilamentMaterial`, all 4 treatments)
+The connection + dendrite tubes now use a custom **`FilamentMaterial`** (soma's Fresnel look on the
+strands) instead of opaque PBR pipes. Verify:
+- [ ] **Fresnel glass tendrils** — strands glow like translucent lit fibres (bright along the
+      grazing surface, see-through) and read in the same material language as the somas, not amber
+      plastic. *Knobs:* `FIL_RIM_POWER`, `FIL_INTENSITY` in `tuning.rs`.
+- [ ] **Granular wobble** — strands have subtle organic radius variation (not perfectly smooth
+      pipes). *Knob:* `TUBE_WOBBLE`. *(Headless-safe geometry — should just work.)*
+- [ ] **Root-fed gradient** — connections brightest where they meet each soma, dimmer mid; dendrites
+      bright at the root, fading to the tip. *Knobs:* `EDGE_GLOW_END/MID`, `DEND_GLOW_ROOT/TIP`,
+      `FIL_GRAD_POWER`.
+- [ ] **Flowing light** — bands of light travel **along** the strands (energy flowing soma→soma).
+      *Knobs:* `FIL_FLOW_SPEED`, `FIL_FLOW_STRENGTH`.
+      **⚠ Runtime WGSL** (`crates/nbe_app/src/filament.wgsl`, material in `shaders.rs`): the soma
+      shader is verified, but this is a NEW runtime shader. If strands render wrong/invisible/pink,
+      it's a `naga` error — most likely the `#import bevy_pbr::mesh_view_bindings::{view, globals}`
+      line (the `globals.time` for flow). Paste the console error and it's a quick fix.
+
+## ⏳⏳⏳ granular-soma Phase 1 (geometry; no shader, low risk) — VERIFIED ✅ (owner screenshot)
 Goal (from the owner's reference images + Gemini's "anatomy of the real node"): somas read as a
 **textured granular mass** with filaments **erupting like roots** from the surface, light compounding
 at the junctions — the **hybrid** look (still glowing from within, not a fully opaque rock).
