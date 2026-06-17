@@ -3,6 +3,40 @@
 > Living handoff so a fresh session can continue without losing context.
 > **Branch:** `claude/neural-business-engine-arch-h7i8xj` · everything below is committed & pushed.
 
+## ⭐ SESSION FRONTIER (read first — latest state)
+
+**Visual: custom-shader overhaul in flight** (per-item desktop checklist in
+`docs/VISUAL_VERIFICATION.md`). Bevy **0.18.1**.
+- Phase 1 done (`a737743`): beads of light on filaments, hair-thin background fibers, cooler
+  deep-blue atmosphere.
+- Phase 2 done (`ddb87f7`): **first custom WGSL material** — `SomaMaterial` Fresnel "cell-wall"
+  (`crates/nbe_app/src/soma.wgsl` + `shaders.rs`); per-network rim; tuning consts
+  `RIM_POWER/INTENSITY/ALPHA` in `tuning.rs`. **⚠ WGSL compiles at RUNTIME, not at `cargo build`** —
+  if somas render wrong/invisible/pink, it's a `naga` shader error in the console log; paste it to fix.
+- Phase 3 (not built): UV-scroll "flowing light" fiber shader (`TubeBuilder` `uv.x` 0→1 +
+  `globals.time`). **Gated**: verify Phase 2 on desktop before stacking a second runtime-shader.
+
+**Non-visual features still unfinished** (verifiable headless; most-actionable first):
+1. **Client auto-linking — greenlit, never finished.** `ops::note_import`
+   (`crates/nbe_cli/src/ops/research.rs`) links notes to *topics* only. TODO: parse a `clients:`
+   front-matter field (extend `parse_import_header`/`parse_header_kv`), match names to client
+   contacts (`repo::list_crm`), insert `note→client` "mentions" edges, report unmatched, wrap in
+   `db.transact(...)`; add a cli test mirroring existing `note_import` tests.
+2. **`transact()` adoption** — `nbe_data::Db::transact`/`integrity_check`/`checked_backup` are built +
+   tested but **unused**; no multi-write op is atomic yet (`note_import`, `sprout`, `package_add`,
+   `delete`). Wrap them (needs `&Connection`-based helper variants of `new_entity`/`set_activation`/
+   `ensure_topic`).
+3. **Spatial-UI interaction backend is built but INERT.** `crates/nbe_app/src/interaction.rs`
+   (`InteractionState`, `UiRequest{Sprout,Link,Edit,Dissolve}` + listeners → `ops::*`, `Dissolving`,
+   `TargetVisualScale`) is unit-tested but **nothing emits the events / applies the scale / triggers
+   dissolve**. Completing it = the B3 spatial UI (hover ring + action buttons + detail-panel
+   actions) — that part is visual.
+4. **Money pacing** (monthly income goal vs forecast+actual) — roadmap item, not built; pure `ops`,
+   store goal via `repo::config_set/get` (like the calendar URL).
+5. **Research auto-tagging** (offline keyword rules → auto topics) — roadmap item, not built; pure `ops`.
+
+**Headless verify:** `cd engine && cargo test -p nbe_cli && cargo clippy -p nbe_app -p nbe_cli`.
+
 ## What this is
 A private, **local-first** desktop app for a personal-training business: a single encrypted
 SQLite file is visualized as a living **"Brain"** — an ANN/neuron + mycelial network. Three
