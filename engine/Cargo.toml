@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+# Pinned to the latest stable Bevy (native Rust engine on wgpu -> DirectX 12 on Windows).
+# Default features are kept for P0 reliability; they will be trimmed (drop audio/gltf/gamepad)
+# in a later pass once the render + data pipeline is in place.
+[workspace.dependencies]
+bevy = "0.18"
+
+# Data engine (P1) — self-contained AES-256 via vendored OpenSSL so there is no system
+# crypto dependency on either Linux (CI) or the Windows workstation.
+# Pinned to 0.37 (libsqlite3-sys ^0.35): rusqlite 0.40 pulls libsqlite3-sys 0.38, whose
+# build script uses the still-unstable `cfg_select!` macro and fails on stable Rust 1.94.
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: parse f64 with full precision so JSON snapshots round-trip bit-for-bit
+# (default best-effort parsing can drift by 1 ULP).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+rand = "0.10"
+rand_chacha = "0.10"
+uuid = { version = "1", features = ["serde", "v4"] }
+thiserror = "2"
+tempfile = "3"
+
+# Thin, fast builds while iterating; the release profile is tuned for the workstation later.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

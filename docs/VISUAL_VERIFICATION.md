@@ -1,0 +1,118 @@
+# Pending visual / interaction verification
+
+## ⏳⏳ NEWEST — shader-overhaul plan, verify in order (commits `a737743`, `ddb87f7`)
+- [ ] **Phase 1 (`a737743`)** — beads of light along filaments (3/edge); thick gray streaks gone
+      (background fibers now hair-thin); cooler deep-blue atmosphere (fog + ClearColor). Knobs:
+      bead count/scale in `scene.rs` web loop; `DistanceFog.color`/`ClearColor`.
+- [ ] **Phase 2 (`ddb87f7`) — soma Fresnel "cell-wall" shader (FIRST custom shader).** Somas should
+      show a glowing rim at the silhouette + clear centre, nucleus glowing within. Knobs: `RIM_POWER`
+      / `RIM_INTENSITY` / `RIM_ALPHA` in `tuning.rs`.
+      **⚠ Shader is validated at RUNTIME, not at build.** If somas render wrong/invisible/pink, it's
+      a WGSL error — check the console log for a `naga`/shader error and send it; that's the fix
+      signal. (Shader: `crates/nbe_app/src/soma.wgsl`, material in `shaders.rs`.)
+- [ ] **Phase 3 (not built yet)** — UV-scroll "flowing light" fiber shader. Gated on Phase 2 looking
+      right (don't stack two unverified runtime-shaders).
+
+> **Purpose:** the agent builds blind on headless Linux; the owner verifies the GUI on Windows.
+> This file pins **exactly what still needs a desktop run** so backend work can continue without
+> losing track. Work the checklist top-to-bottom in one session, tick items, and note what to tune.
+> Keep this file current: when something is confirmed good, move it to **Verified**; when a build
+> changes the look, add a new item.
+
+**Run it:**
+```powershell
+git pull origin claude/neural-business-engine-arch-h7i8xj
+cargo run -p nbe_app --release -- --db brain.db
+```
+
+---
+
+## ⏳ PENDING — verify these on the desktop
+
+### Camera
+- [ ] **Zoom-to-cursor pivot** (commit `dc329bd`): zoom into a cluster, then left-drag — does it
+      orbit *what you zoomed into* (not a stale far point)? This was the reported bug.
+      *Tune:* `systems.rs orbit_camera` — `scroll * 0.18` (radius rate), `scroll * 0.35` (pull toward
+      node); cone in `pick_index` `perp < along*0.05 + 3.0`.
+- [ ] **Smooth depth-of-field** (`8ed125a`): zoom/fly softens fore/background into bokeh smoothly,
+      no snapping. *Tune:* `update_dof` lerp rate `* 3.0`.
+
+### Picking & selection (the interaction foundation — verify before building the visual frontend)
+- [ ] **Hover highlight**: pointing at a neuron brightens it (and swells its halo). Too subtle / too
+      strong? *Tune:* `fire_render` boosts — hovered `(1.5, 1.25)`.
+- [ ] **Click-to-select**: a stationary left-click selects a neuron (strong highlight) and opens the
+      **detail panel** (bottom-left) with its info. *Tune:* selected boost `(2.4, 1.6)`.
+- [ ] **Click vs orbit feel**: does selecting vs rotating feel natural, or is clicking too grabby /
+      too fussy? *Tune:* cone `perp < along*0.05 + 3.0` (width); click-vs-drag distance `< 5.0`
+      in `pick_node`.
+- [ ] **Detail panel**: readable, well-placed (LEFT_BOTTOM), closes to deselect. Glassmorphic
+      styling not done yet.
+
+### Synaptic flow
+- [ ] **Pulse traffic rules** (`0ecba78`): pulses look calm/deliberate; you should **never** see two
+      pulses overlapping on one fiber. *Tune:* `tuning.rs QUEUE_CAP`, pulse speed in `fire_scheduler`
+      / `spawn_pulse` (`0.12 + 0.12·rand`).
+- [ ] **Firing pace & brightness** (`198b996`): calm, soft glow — not a busy/blinding "star field".
+      *Tune:* `tuning.rs` FIRE_BASE / FIRE_NEED / FIRE_DECAY / FLARE_GAIN / HALO_SWELL /
+      PULSE_ENERGY / MAX_PULSES_PER_FIRE.
+
+### Node & network look
+- [ ] **Glow-from-inside neurons** (`70ddff7`): translucent membrane body with a brighter core
+      inside — light contained in a cell, not a bare dot. Membrane too opaque / too invisible?
+      *Tune:* `scene.rs` membrane `srgba(r*0.5,…,0.22)`; core size `shape * 0.5`.
+- [ ] **Soma→axon taper** (`375f1e6`): edges visibly grow out of the cell body (flared at the soma,
+      thin waist). *Tune:* `axon_radii(.., ri*0.5, rj*0.5, 0.1)` — flare factor `0.5`, waist `0.1`.
+- [ ] **Misshapen cells**: slightly irregular/oriented, not perfect spheres. *Tune:* `shape` scale
+      `0.78 + rand*0.5` in `scene.rs`.
+- [ ] **Networks identical except hue** (`bb2c879`, `6e14a47`): Business = warm amber, Research =
+      blue-purple; same density/texture, themed edges/membranes/dendrites/pulses. *Tune:* `scene.rs
+      theme_rgb` — Business `(1.0,0.55,0.15)`, Research `(0.5,0.42,1.0)`; density `geometry.rs
+      density_radii` `(32.6, 24.8, 32.6)`.
+- [ ] **Fewer CRM nodes**: ledger folded into clients → Business ≈ one neuron per client. (Demo seed
+      still has many clients; real `brain.db` will be sparse.)
+- [ ] **Background depth fibers** (`8ed125a`): faint hair-thin layer adds depth without clutter.
+      *Tune:* `scene.rs` fiber count `200`, alpha `0.05`; `geometry.rs background_fibers_mesh` thin
+      `0.0016`.
+- [ ] **Distance fog vs purple Research**: fog is warm-amber tinted — does it clash with the purple
+      cluster in the distance? *Tune:* `scene.rs spawn_camera` `DistanceFog.color`.
+
+---
+
+## 🔒 BLOCKED — backend built, but needs the visual frontend before it can be verified
+These are tested headless (logic) but have **no UI yet** to trigger/observe them. Verify once the
+Phase B3 frontend (hover ring + action buttons) emits the events. (Backend: commit `bff35a3`.)
+- [ ] **Hover action buttons** appear after ~450ms linger (`InteractionState` / `HOVER_THRESHOLD`).
+- [ ] **Sprout / Link / Edit / Dissolve** buttons fire `UiRequest*` → `ops::sprout/link/delete`.
+- [ ] **Apoptosis**: deleting a node fades it over 800ms then despawns; it stops firing immediately.
+- [ ] **Financial scale**: client neuron size reflects earned revenue (`TargetVisualScale`) — not yet
+      wired into the live transform (Breath drives scale today); needs the visual layer to apply it.
+
+---
+
+## ✅ VERIFIED (move items here once confirmed good on the desktop)
+- Earlier renderer baseline (organic neurons, dendrites, two networks, sidebar fly-to, Add Research
+  button) — confirmed via screenshots in earlier sessions.
+- **2026-06-16, from desktop screenshots:**
+  - **Camera zoom-to-cursor + rotate** — owner: "zooming and camera controls are much better." ✓
+  - **Glow-from-inside neurons** (membrane + core) — read as cells, not dots (see amber-core note). ✓
+  - **Soma→axon taper** — filaments visibly grow out of the cell bodies. ✓
+  - **Two networks, distinct hues** — Business warm amber, Research blue-purple, same structure. ✓
+  - **Spread-out networks + background depth fibers** — organic, not a dense ball. ✓
+  - *Still pending (needs interaction, not visible in a still): picking/selection/detail panel,
+    pulse-traffic flow, smooth DoF.*
+
+---
+
+## ⏳ NEW — verify next desktop run (commit `eadc3e3`)
+- [ ] **Amber cores no longer blow out to white** — white-hot mix cut 0.7→0.25 in `geometry.rs
+      node_emissive`, so amber blooms orange. Purple should be ~unchanged. Confirm amber keeps a
+      visible membrane ring like the purple does.
+- [ ] **Tissue is lit, not inherently coloured** — membranes/edges/dendrites/background fibers are
+      now near-neutral translucent; their colour should come from the cores' bloom + neutral scene
+      lights, not baked-in orange. **Risk (built blind):** could read too dark / washed if the
+      neutral lighting is too weak. Knobs: tissue `emissive r*0.04..0.05` in `scene.rs` themes loop;
+      `spawn_lights` directional illuminance; `AmbientLight` brightness `50` in `spawn_camera`.
+
+## Notes / open tuning questions for the owner
+- Keep the warm-amber + blue-purple palette (cyan/teal suggestion was rejected).
+- Decide flare/waist strength on the soma→axon taper once seen.
