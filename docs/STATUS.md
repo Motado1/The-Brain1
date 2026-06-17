@@ -1,7 +1,8 @@
 # STATUS / HANDOFF — The Neural Business Engine
 
 > Living handoff so a fresh session can continue without losing context.
-> **Branch:** `claude/neural-business-engine-arch-h7i8xj` · everything below is committed & pushed.
+> **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
+> removed). Commit & push straight to `main`.
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 

@@ -55,8 +55,8 @@ libasound2-dev libudev-dev`.
   shape and add a `tests/cli_tests.rs` test; keep `cargo test` + `clippy` green.
 - **The renderer's "alive" layer** (firing/propagation/motes) reads activation that is recomputed
   from real facet urgency on load — keep visual liveliness tied to the data model, not faked.
-- **Commit + push every meaningful step** to the working branch (see `docs/STATUS.md`). Keep
-  `docs/STATUS.md` current when you add a feature — it is the cross-session handoff.
+- **Commit + push every meaningful step** straight to `main` (all work lives on `main` — no feature
+  branches). Keep `docs/STATUS.md` current when you add a feature — it is the cross-session handoff.
 - Research import house format for Gemini docs: `docs/GEMINI_RESEARCH_FORMAT.md`.
 
 ## Pointers
