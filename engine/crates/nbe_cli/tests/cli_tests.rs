@@ -671,6 +671,47 @@ fn note_import_plain_file_titles_from_filename() {
 }
 
 #[test]
+fn note_import_links_named_clients_and_reports_unmatched() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("prog.md");
+    std::fs::write(
+        &path,
+        "---\ntitle: Bench progression\ntags: Strength\nclients: James Bywater, Ghost Person\n---\n\nWork up to a heavy triple.\n",
+    )
+    .unwrap();
+
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James Bywater", "active", None, None, NOW).unwrap();
+
+    let msg = ops::note_import(&mut db, &path, &[], None, "draft", NOW).unwrap();
+    assert!(msg.contains("mentions [James Bywater]"), "{msg}");
+    assert!(msg.contains("no client matched [Ghost Person]"), "{msg}");
+
+    // The note carries exactly one `mentions` edge, pointing at the matched client.
+    let client_id = repo::list_crm(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.contact.as_deref() == Some("James Bywater"))
+        .unwrap()
+        .entity_id;
+    let note = repo::list_knowledge(&db.conn)
+        .unwrap()
+        .into_iter()
+        .find(|k| k.body_md.starts_with("# Bench progression"))
+        .unwrap();
+    let mentions: Vec<_> = repo::outgoing(&db.conn, &note.entity_id)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.edge_type == "mentions")
+        .collect();
+    assert_eq!(mentions.len(), 1, "one mentions edge");
+    assert_eq!(mentions[0].target_id, client_id, "edge points at the client");
+
+    // Topic tagging still works alongside client linking.
+    assert!(ops::note_list(&db, Some("Strength")).unwrap().contains("Bench progression"));
+}
+
+#[test]
 fn calendar_sync_is_idempotent() {
     let dir = tempfile::tempdir().unwrap();
     let ics_path = dir.path().join("cal.ics");

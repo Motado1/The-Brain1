@@ -16,24 +16,28 @@
 - Phase 3 (not built): UV-scroll "flowing light" fiber shader (`TubeBuilder` `uv.x` 0→1 +
   `globals.time`). **Gated**: verify Phase 2 on desktop before stacking a second runtime-shader.
 
+**✅ Just done — Client auto-linking** (`ops::note_import`, `crates/nbe_cli/src/ops/research.rs`):
+an import doc can now carry a `Clients:` header (front-matter or leading line) alongside `Tags:`.
+Names are matched case-insensitively to CRM contacts (`repo::list_crm`); each match gets a
+`note→client` **"mentions"** edge, unmatched names are reported (`"; no client matched [..]"`), and
+the whole mentions batch is inserted atomically via `db.transact(...)`. Parser refactored to an
+`ImportHeader` struct + shared `push_csv` helper. The GUI **Add Research** button benefits for free
+(it routes through `note_import`). Covered by `note_import_links_named_clients_and_reports_unmatched`
+in `tests/cli_tests.rs`; full suite + clippy green.
+
 **Non-visual features still unfinished** (verifiable headless; most-actionable first):
-1. **Client auto-linking — greenlit, never finished.** `ops::note_import`
-   (`crates/nbe_cli/src/ops/research.rs`) links notes to *topics* only. TODO: parse a `clients:`
-   front-matter field (extend `parse_import_header`/`parse_header_kv`), match names to client
-   contacts (`repo::list_crm`), insert `note→client` "mentions" edges, report unmatched, wrap in
-   `db.transact(...)`; add a cli test mirroring existing `note_import` tests.
-2. **`transact()` adoption** — `nbe_data::Db::transact`/`integrity_check`/`checked_backup` are built +
-   tested but **unused**; no multi-write op is atomic yet (`note_import`, `sprout`, `package_add`,
-   `delete`). Wrap them (needs `&Connection`-based helper variants of `new_entity`/`set_activation`/
-   `ensure_topic`).
-3. **Spatial-UI interaction backend is built but INERT.** `crates/nbe_app/src/interaction.rs`
+1. **`transact()` adoption** — `nbe_data::Db::transact`/`integrity_check`/`checked_backup` are built +
+   tested but only the new `note_import` client-mentions batch uses `transact` so far; the rest of
+   `note_import` and `sprout`/`package_add`/`delete` are still non-atomic. Wrap them (needs
+   `&Connection`-based helper variants of `new_entity`/`set_activation`/`ensure_topic`).
+2. **Spatial-UI interaction backend is built but INERT.** `crates/nbe_app/src/interaction.rs`
    (`InteractionState`, `UiRequest{Sprout,Link,Edit,Dissolve}` + listeners → `ops::*`, `Dissolving`,
    `TargetVisualScale`) is unit-tested but **nothing emits the events / applies the scale / triggers
    dissolve**. Completing it = the B3 spatial UI (hover ring + action buttons + detail-panel
    actions) — that part is visual.
-4. **Money pacing** (monthly income goal vs forecast+actual) — roadmap item, not built; pure `ops`,
+3. **Money pacing** (monthly income goal vs forecast+actual) — roadmap item, not built; pure `ops`,
    store goal via `repo::config_set/get` (like the calendar URL).
-5. **Research auto-tagging** (offline keyword rules → auto topics) — roadmap item, not built; pure `ops`.
+4. **Research auto-tagging** (offline keyword rules → auto topics) — roadmap item, not built; pure `ops`.
 
 **Headless verify:** `cd engine && cargo test -p nbe_cli && cargo clippy -p nbe_app -p nbe_cli`.
 

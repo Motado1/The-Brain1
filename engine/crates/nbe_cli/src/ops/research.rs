@@ -268,12 +268,19 @@ pub fn note_review(db: &mut nbe_data::Db, note_prefix: &str, now: i64) -> Result
     ))
 }
 
+/// What an import header carries: an optional title plus comma-lists of topic tags and client names.
+#[derive(Default)]
+struct ImportHeader {
+    title: Option<String>,
+    tags: Vec<String>,
+    clients: Vec<String>,
+}
+
 /// Parse a lightweight import header: a YAML-ish front-matter block (`---`…`---`) or leading
-/// `Title:` / `Tags:` lines before the first blank line. Returns `(title, tags, body)` with the
-/// header stripped from the body.
-fn parse_import_header(content: &str) -> (Option<String>, Vec<String>, String) {
-    let mut title = None;
-    let mut tags: Vec<String> = Vec::new();
+/// `Title:` / `Tags:` / `Clients:` lines before the first blank line. Returns the parsed
+/// [`ImportHeader`] plus the body with the header stripped.
+fn parse_import_header(content: &str) -> (ImportHeader, String) {
+    let mut hdr = ImportHeader::default();
     let lines: Vec<&str> = content.lines().collect();
 
     // Front-matter block.
@@ -281,14 +288,14 @@ fn parse_import_header(content: &str) -> (Option<String>, Vec<String>, String) {
         if let Some(rel_end) = lines.iter().skip(1).position(|l| l.trim() == "---") {
             let close = rel_end + 1; // index of the closing ---
             for l in &lines[1..close] {
-                parse_header_kv(l, &mut title, &mut tags);
+                parse_header_kv(l, &mut hdr);
             }
             let body = lines[close + 1..].join("\n");
-            return (title, tags, body.trim_start_matches('\n').to_string());
+            return (hdr, body.trim_start_matches('\n').to_string());
         }
     }
 
-    // Leading Title:/Tags: lines.
+    // Leading Title:/Tags:/Clients: lines.
     let mut consumed = 0;
     for l in &lines {
         let t = l.trim();
@@ -296,8 +303,9 @@ fn parse_import_header(content: &str) -> (Option<String>, Vec<String>, String) {
             break;
         }
         let lower = t.to_ascii_lowercase();
-        if lower.starts_with("title:") || lower.starts_with("tags:") {
-            parse_header_kv(l, &mut title, &mut tags);
+        if lower.starts_with("title:") || lower.starts_with("tags:") || lower.starts_with("clients:")
+        {
+            parse_header_kv(l, &mut hdr);
             consumed += 1;
         } else {
             break;
@@ -305,29 +313,34 @@ fn parse_import_header(content: &str) -> (Option<String>, Vec<String>, String) {
     }
     if consumed > 0 {
         let body = lines[consumed..].join("\n");
-        return (title, tags, body.trim_start_matches('\n').to_string());
+        return (hdr, body.trim_start_matches('\n').to_string());
     }
 
-    (None, tags, content.to_string())
+    (hdr, content.to_string())
 }
 
-fn parse_header_kv(line: &str, title: &mut Option<String>, tags: &mut Vec<String>) {
+fn parse_header_kv(line: &str, hdr: &mut ImportHeader) {
     let Some((k, v)) = line.split_once(':') else {
         return;
     };
     let val = v.trim().trim_matches(['"', '\'']).trim();
     match k.trim().to_ascii_lowercase().as_str() {
-        "title" if !val.is_empty() => *title = Some(val.to_string()),
-        "tags" => {
-            let val = val.trim_start_matches('[').trim_end_matches(']');
-            for part in val.split(',') {
-                let p = part.trim().trim_matches(['"', '\'']).trim();
-                if !p.is_empty() {
-                    tags.push(p.to_string());
-                }
-            }
-        }
+        "title" if !val.is_empty() => hdr.title = Some(val.to_string()),
+        "tags" => push_csv(val, &mut hdr.tags),
+        "clients" => push_csv(val, &mut hdr.clients),
         _ => {}
+    }
+}
+
+/// Split a comma-separated value (optionally wrapped in `[...]`) into trimmed, unquoted, non-empty
+/// items, appending them to `out`.
+fn push_csv(val: &str, out: &mut Vec<String>) {
+    let val = val.trim_start_matches('[').trim_end_matches(']');
+    for part in val.split(',') {
+        let p = part.trim().trim_matches(['"', '\'']).trim();
+        if !p.is_empty() {
+            out.push(p.to_string());
+        }
     }
 }
 
@@ -349,11 +362,11 @@ pub fn note_import(
     now: i64,
 ) -> Result<String> {
     let content = std::fs::read_to_string(path)?;
-    let (parsed_title, parsed_tags, body) = parse_import_header(&content);
+    let (header, body) = parse_import_header(&content);
 
     let title_str = title
         .map(str::to_string)
-        .or(parsed_title)
+        .or(header.title)
         .or_else(|| first_heading(&body))
         .or_else(|| path.file_stem().map(|s| s.to_string_lossy().to_string()))
         .unwrap_or_else(|| "Untitled".into());
@@ -383,7 +396,7 @@ pub fn note_import(
 
     // Merge in-doc tags with passed topics, dedupe case-insensitively.
     let mut all_topics: Vec<String> = Vec::new();
-    for t in parsed_tags.iter().chain(topics.iter()) {
+    for t in header.tags.iter().chain(topics.iter()) {
         let t = t.trim();
         if !t.is_empty() && !all_topics.iter().any(|x| x.eq_ignore_ascii_case(t)) {
             all_topics.push(t.to_string());
@@ -409,11 +422,60 @@ pub fn note_import(
         }
     }
 
-    let tail = if all_topics.is_empty() {
+    // Link the note to any clients named in a `Clients:` header — a `note→client` "mentions" edge
+    // per match — so research a client cares about wires into their neuron. Names match a CRM
+    // contact case-insensitively; unmatched names are reported, not invented. The whole batch is
+    // applied atomically so a half-linked note can never persist.
+    let crm = repo::list_crm(&db.conn)?;
+    let mut matched: Vec<(String, String)> = Vec::new(); // (entity_id, contact name)
+    let mut unmatched: Vec<String> = Vec::new();
+    for name in &header.clients {
+        let hit = crm.iter().find(|c| {
+            c.contact
+                .as_deref()
+                .is_some_and(|n| n.trim().eq_ignore_ascii_case(name))
+        });
+        match hit {
+            Some(c) if !matched.iter().any(|(eid, _)| eid == &c.entity_id) => {
+                matched.push((c.entity_id.clone(), c.contact.clone().unwrap_or_default()))
+            }
+            Some(_) => {} // already matched this client via another spelling
+            None => unmatched.push(name.clone()),
+        }
+    }
+    if !matched.is_empty() {
+        let note_id = id.clone();
+        let edges = matched.clone();
+        db.transact(|tx| {
+            for (client_id, _) in &edges {
+                repo::insert_edge(
+                    tx,
+                    &Edge {
+                        id: new_id(),
+                        source_id: note_id.clone(),
+                        target_id: client_id.clone(),
+                        edge_type: "mentions".into(),
+                        weight: 1.0,
+                        directed: true,
+                    },
+                )?;
+            }
+            Ok(())
+        })?;
+    }
+
+    let mut tail = if all_topics.is_empty() {
         " (no tags — add a Tags: line or pass a topic)".to_string()
     } else {
         format!("; tagged [{}]", all_topics.join(", "))
     };
+    if !matched.is_empty() {
+        let names: Vec<&str> = matched.iter().map(|(_, n)| n.as_str()).collect();
+        tail.push_str(&format!("; mentions [{}]", names.join(", ")));
+    }
+    if !unmatched.is_empty() {
+        tail.push_str(&format!("; no client matched [{}]", unmatched.join(", ")));
+    }
     Ok(format!("imported '{title_str}' as note {}{tail}", short(&id)))
 }
 
