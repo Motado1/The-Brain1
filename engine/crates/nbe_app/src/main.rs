@@ -63,14 +63,14 @@ fn db_path_from_args() -> String {
 }
 
 fn main() {
-    // Render backend. Default DX12 on Windows (our target), but `NBE_BACKEND=vulkan|dx12|gl` lets the
-    // owner switch — Vulkan dodges a known DX12 swapchain `ResizeBuffers` panic on window resize/
-    // minimize (a Bevy/wgpu rough edge, unrelated to scene content).
+    // Render backend. Default **Vulkan** on Windows (DX12's swapchain `ResizeBuffers` panics on
+    // window maximize/resize in this Bevy/wgpu version — Vulkan is rock-solid on the RTX 5080 and is
+    // still native wgpu, no browser/Electron). `NBE_BACKEND=dx12|vulkan|gl` overrides.
     let backends = match std::env::var("NBE_BACKEND").ok().as_deref() {
         Some("vulkan") | Some("vk") => Some(Backends::VULKAN),
         Some("dx12") | Some("dx") => Some(Backends::DX12),
         Some("gl") => Some(Backends::GL),
-        _ if cfg!(target_os = "windows") => Some(Backends::DX12),
+        _ if cfg!(target_os = "windows") => Some(Backends::VULKAN),
         _ => None,
     };
 

@@ -50,11 +50,16 @@ pub(crate) const ROOT_EMBED: f32 = 0.82;
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;
 
 // ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
-/// Where a dendrite trunk begins, as a fraction of the soma radius — just inside the surface so the
-/// wide root fuses smoothly with the cell body (the "smooth root trunk" of the references).
-pub(crate) const DEND_EMBED: f32 = 0.6;
-/// Trunk root width as a fraction of the soma radius; it tapers from here out through the branches.
-pub(crate) const DEND_ROOT_R: f32 = 0.15;
+/// Where a dendrite trunk begins, as a fraction of the soma radius — well *inside* the surface so
+/// the wide flared base is embedded in the cell body and the branch appears to grow out of it
+/// (like a limb off a tree trunk), not start at the skin as a separate stub.
+pub(crate) const DEND_EMBED: f32 = 0.4;
+/// Trunk *base* width as a fraction of the soma radius — wide where it fuses with the soma, then a
+/// concave taper (DEND_ROOT_TAPER_POW) necks it down fast so only the fillet at the base is fat.
+pub(crate) const DEND_ROOT_R: f32 = 0.24;
+/// Concavity of the trunk's base→tip taper (>1 = stays thin along its length but flares sharply at
+/// the soma, the tree-branch fillet). 1.0 would be a plain cone.
+pub(crate) const DEND_ROOT_TAPER_POW: f32 = 2.6;
 /// How many times a dendrite splits into finer children (recursion depth) — the fractal tree.
 pub(crate) const DEND_BRANCH_DEPTH: u32 = 3;
 /// Each branch ends at this fraction of its start width; its children continue from there, so the

@@ -27,6 +27,8 @@ all data lives inside one continuous fractal-dendrite anatomy, revealed by camer
 > Build order is verifiable slices (most of 2–4 only judgeable on the Windows GPU). LOD has nothing
 > to fade until anatomy (2) exists, so 2 likely comes next. Earlier glowing-tube FilamentMaterial was
 > REVERTED — keep the granular-soma + branching-dendrite baseline; don't reintroduce fat glowing tubes.
+> **Render backend: Vulkan is now the default on Windows** (`main.rs`) — DX12's swapchain panics on
+> window maximize/resize in this Bevy/wgpu version. `NBE_BACKEND=dx12|vulkan|gl` overrides.
 
 
 **Visual: granular-soma overhaul (hybrid look) in flight** (per-item desktop checklist in

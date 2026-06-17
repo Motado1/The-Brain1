@@ -284,22 +284,28 @@ fn grow_dendrite(
 ) {
     let leaf = depth >= crate::tuning::DEND_BRANCH_DEPTH;
     let r1 = if leaf { 0.012 } else { r0 * crate::tuning::DEND_BRANCH_TAPER };
-    // A few gently wandering segments; branches get shorter the deeper (finer) they are.
-    let segs = 2 + (lcg(s) * 2.0) as usize;
+    // The trunk (depth 0) gets extra base rings + a concave taper so it flares smoothly out of the
+    // soma like a limb off a trunk; deeper branches are short and taper linearly.
+    let trunk = depth == 0;
+    let segs = (if trunk { 4 } else { 2 }) + (lcg(s) * 2.0) as usize;
     let seg_len = node_r * (0.7 + lcg(s) * 0.7) / (1.0 + depth as f32 * 0.5);
     let mut p = start;
     let mut pts = vec![p];
-    for _ in 0..segs {
+    for i in 0..segs {
         let j = Vec3::new(lcg(s) - 0.5, lcg(s) - 0.5, lcg(s) - 0.5) * 0.5;
         dir = (dir + j).normalize_or_zero();
-        p += dir * seg_len;
+        // Short first steps on the trunk so the base flare has resolution; then full strides.
+        let step = if trunk && i < 2 { seg_len * 0.35 } else { seg_len };
+        p += dir * step;
         pts.push(p);
     }
     let n = pts.len();
+    let pow = if trunk { crate::tuning::DEND_ROOT_TAPER_POW } else { 1.0 };
     let radii: Vec<f32> = (0..n)
         .map(|i| {
             let t = i as f32 / (n - 1) as f32;
-            (r0 * (1.0 - t) + r1 * t).max(0.01)
+            // r1 + (r0 - r1) * (1-t)^pow — concave when pow>1: fat only at the soma, thin beyond.
+            (r1 + (r0 - r1) * (1.0 - t).powf(pow)).max(0.01)
         })
         .collect();
     builder.add(&pts, &radii, 5);
