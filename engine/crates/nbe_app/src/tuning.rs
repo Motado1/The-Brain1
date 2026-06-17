@@ -60,3 +60,11 @@ pub(crate) const DEND_BRANCH_DEPTH: u32 = 3;
 /// Each branch ends at this fraction of its start width; its children continue from there, so the
 /// tree is continuous thick-trunk → hair-thin twigs.
 pub(crate) const DEND_BRANCH_TAPER: f32 = 0.55;
+
+// ---- level-of-detail (macro→micro cosmic scaling) ---------------------------------------
+// Anchored on the camera: detail_for_distance() maps these to a 0..1 cubic-smoothed detail value.
+// Tune from a screenshot — they depend on the scene's overall scale (network radii ~ cbrt(n)*32).
+/// Camera distance at/under which we're in deep **Micro** focus (finest twigs + terminal data full).
+pub(crate) const LOD_MICRO_DIST: f32 = 60.0;
+/// Camera distance at/beyond which we're in **Galactic** view (somas + primary trunks only).
+pub(crate) const LOD_GALACTIC_DIST: f32 = 900.0;

@@ -6,6 +6,24 @@
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
+**Cosmic-scaling workspace (4-system arch, in progress).** Goal: abandon orbit/satellite placement;
+all data lives inside one continuous fractal-dendrite anatomy, revealed by camera distance.
+- **System 1 (LOD) — ANCHOR LAID (`lod.rs`).** `compute_lod` reads the camera each frame: global band
+  from `OrbitCamera.radius`, focus node from nearest `eye→NodeInfo.pos`. Both run through the pure
+  `detail_for_distance()` (cubic smoothstep, thresholds `LOD_MICRO_DIST`/`LOD_GALACTIC_DIST` in
+  `tuning.rs`) → `LodState{zoom, focus, focus_detail}`. Live HUD readout (band + focus + detail) so
+  it's verifiable while flying. 2 unit tests. NOT YET applied to geometry (needs the anatomy first).
+- System 2 (embedded anatomy): sessions=beads along branch segments, packages/research=terminal
+  twigs — generated from real data in `geometry.rs`/new `ops`. NOT built.
+- System 3 (kinetic flight + Ctrl+P fuzzy search): extend `CameraTarget` lerp → timed cubic ease;
+  egui overlay fuzzy-matches `NodeRegistry` strings → sets target. NOT built.
+- System 4 (glassmorphic egui): translucent dark panels, domain-accent trim (amber client / indigo
+  research), left profile dock on focus. NOT built.
+> Build order is verifiable slices (most of 2–4 only judgeable on the Windows GPU). LOD has nothing
+> to fade until anatomy (2) exists, so 2 likely comes next. Earlier glowing-tube FilamentMaterial was
+> REVERTED — keep the granular-soma + branching-dendrite baseline; don't reintroduce fat glowing tubes.
+
+
 **Visual: granular-soma overhaul (hybrid look) in flight** (per-item desktop checklist in
 `docs/VISUAL_VERIFICATION.md`). Bevy **0.18.1**.
 - **Phase 1 done — geometry, headless-verified, no shader risk.** Somas are now lumpy **displaced

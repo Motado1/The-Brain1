@@ -7,6 +7,7 @@ use bevy::window::PrimaryWindow;
 use crate::components::*;
 use crate::geometry::*;
 use crate::interaction::Dissolving;
+use crate::lod::{LodBand, LodState};
 use crate::nav::*;
 use crate::tuning::*;
 
@@ -422,12 +423,28 @@ pub(crate) fn setup_hud(mut commands: Commands) {
     ));
 }
 
-pub(crate) fn update_hud(diagnostics: Res<DiagnosticsStore>, mut query: Query<&mut Text, With<HudText>>) {
+pub(crate) fn update_hud(
+    diagnostics: Res<DiagnosticsStore>,
+    lod: Res<LodState>,
+    registry: Res<NodeRegistry>,
+    mut query: Query<&mut Text, With<HudText>>,
+) {
     let fps = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|d| d.smoothed())
         .unwrap_or(0.0);
+    let band = match lod.band() {
+        LodBand::Galactic => "Galactic",
+        LodBand::Planetary => "Planetary",
+        LodBand::Micro => "Micro",
+    };
+    // Live LOD readout so the camera-distance anchor is verifiable at a glance while flying.
+    let focus = lod
+        .focus
+        .and_then(|i| registry.nodes.get(i))
+        .map(|n| format!("  →  {} ({:.2})", n.name, lod.focus_detail))
+        .unwrap_or_default();
     for mut text in &mut query {
-        text.0 = format!("{fps:5.0} FPS");
+        text.0 = format!("{fps:5.0} FPS   LOD {band} {:.2}{focus}", lod.zoom);
     }
 }

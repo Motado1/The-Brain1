@@ -15,6 +15,7 @@ mod components;
 mod domain;
 mod geometry;
 mod interaction;
+mod lod;
 mod nav;
 mod panel;
 mod scene;
@@ -34,6 +35,7 @@ use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
 
 use crate::components::*;
 use crate::interaction::*;
+use crate::lod::*;
 use crate::nav::*;
 use crate::panel::*;
 use crate::scene::*;
@@ -99,6 +101,7 @@ fn main() {
         .insert_resource(SceneControl::default())
         .insert_resource(UiPointer::default())
         .insert_resource(Picker::default())
+        .insert_resource(LodState::default())
         .insert_resource(InteractionState::default())
         .add_message::<UiRequestSprout>()
         .add_message::<UiRequestLink>()
@@ -114,6 +117,7 @@ fn main() {
             (
                 pick_node,
                 orbit_camera,
+                compute_lod,
                 update_dof,
                 face_camera,
                 update_hud,
