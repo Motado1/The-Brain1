@@ -32,11 +32,17 @@ in `tests/cli_tests.rs`; full suite + clippy green.
    `&Connection`-based helper variants of `new_entity`/`set_activation`/`ensure_topic`).
 2. **Spatial-UI interaction backend is built but INERT.** `crates/nbe_app/src/interaction.rs`
    (`InteractionState`, `UiRequest{Sprout,Link,Edit,Dissolve}` + listeners → `ops::*`, `Dissolving`,
-   `TargetVisualScale`) is unit-tested but **nothing emits the events / applies the scale / triggers
-   dissolve**. Completing it = the B3 spatial UI (hover ring + action buttons + detail-panel
-   actions) — that part is visual.
-3. **Money pacing** (monthly income goal vs forecast+actual) — roadmap item, not built; pure `ops`,
-   store goal via `repo::config_set/get` (like the calendar URL).
+   `TargetVisualScale`) is unit-tested. The listener/`update_*` systems **are scheduled** in
+   `main.rs`, but they're starved: **nothing writes any `UiRequest`** (no emitters) and `Dissolving`
+   is **never inserted**, so the action plumbing never fires. `TargetVisualScale` *is* inserted on
+   clients (`scene.rs:476`) and recomputed by `update_financial_scale`, but **no system lerps it onto
+   the transform** — computed, not applied. Completing it = the B3 spatial UI (hover ring + action
+   buttons + detail-panel actions, which write the `UiRequest`s) plus a scale-apply system — that
+   part is visual.
+3. **Money pacing** (monthly income goal vs forecast+actual) — roadmap item, not built; pure `ops`.
+   NOTE: a per-ledger `pacing_target_cents` field already exists on `LedgerFacet` (schema-wide) as a
+   foundation; decide whether the monthly goal rides that or a separate `repo::config_set/get` key
+   (like the calendar URL).
 4. **Research auto-tagging** (offline keyword rules → auto topics) — roadmap item, not built; pure `ops`.
 
 **Headless verify:** `cd engine && cargo test -p nbe_cli && cargo clippy -p nbe_app -p nbe_cli`.
