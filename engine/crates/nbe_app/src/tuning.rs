@@ -30,6 +30,16 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 /// Rim opacity (centre stays clear).
 pub(crate) const RIM_ALPHA: f32 = 0.85;
 
+// Dendrites share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit membrane look),
+// but a touch softer — a thin branch is almost all grazing-angle surface, so a sharper rim + lower
+// intensity keeps the dense tree glowing gently instead of blowing out into solid bright threads.
+/// Rim sharpness for dendrite tubes (higher than the soma so only the silhouette glows).
+pub(crate) const DEND_RIM_POWER: f32 = 3.0;
+/// Rim glow brightness for dendrites (below the soma so the cell body still dominates).
+pub(crate) const DEND_RIM_INTENSITY: f32 = 0.95;
+/// Rim opacity for dendrites.
+pub(crate) const DEND_RIM_ALPHA: f32 = 0.6;
+
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
 /// enough resolution for the noise bumps to read without exploding draw cost.

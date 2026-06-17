@@ -405,6 +405,9 @@ fn build_scene(
     let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
     // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader).
     let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
+    // Dendrites wear the *same* Fresnel shader (so they read as the same translucent membrane as the
+    // soma), tuned a touch softer for thin geometry — see DEND_RIM_* in tuning.rs.
+    let mut dendrite_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
         soma_of.insert(
@@ -412,6 +415,13 @@ fn build_scene(
             somas.add(SomaMaterial {
                 rim_color: LinearRgba::new(r, g, b, 1.0),
                 params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
+            }),
+        );
+        dendrite_of.insert(
+            net,
+            somas.add(SomaMaterial {
+                rim_color: LinearRgba::new(r, g, b, 1.0),
+                params: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, 0.0),
             }),
         );
         // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
@@ -593,7 +603,7 @@ fn build_scene(
                 }
                 commands.spawn((
                     Mesh3d(meshes.add(tree.mesh)),
-                    MeshMaterial3d(themes[&network].2.clone()),
+                    MeshMaterial3d(dendrite_of[&network].clone()),
                     Transform::default(),
                     SceneItem,
                 ));
