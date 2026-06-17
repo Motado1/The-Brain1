@@ -122,32 +122,9 @@ pub(crate) struct TubeBuilder {
     indices: Vec<u32>,
 }
 
-/// Smooth-ish wobble in [-1, 1] for tube vertex (`ring`, `side`): low-frequency undulation along the
-/// length plus a gentle lobe around the ring, seeded per tube so each strand is uniquely lumpy.
-fn tube_wobble_at(ring: usize, side: usize, sides: usize, seed: u64) -> f32 {
-    let rp = (seed & 0xFFFF) as f32 * 0.001;
-    let sp = ((seed >> 16) & 0xFFFF) as f32 * 0.001;
-    let along = (ring as f32 * 0.9 + rp).sin();
-    let around = (side as f32 / sides.max(1) as f32 * std::f32::consts::TAU * 2.0 + sp).sin();
-    (along * 0.6 + around * 0.4).clamp(-1.0, 1.0)
-}
-
 impl TubeBuilder {
     /// Sweep a tube along `points` with a per-point `radii` profile (lets tubes taper / bulge).
     pub(crate) fn add(&mut self, points: &[Vec3], radii: &[f32], sides: usize) {
-        self.add_organic(points, radii, sides, 0.0, 0);
-    }
-
-    /// Like [`add`](Self::add) but perturbs each vertex's radius by `wobble` (fraction of radius)
-    /// using `seed`, so the strand reads as an organic tendril instead of a perfectly smooth pipe.
-    pub(crate) fn add_organic(
-        &mut self,
-        points: &[Vec3],
-        radii: &[f32],
-        sides: usize,
-        wobble: f32,
-        seed: u64,
-    ) {
         if points.len() < 2 {
             return;
         }
@@ -170,15 +147,10 @@ impl TubeBuilder {
             let up = if t.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
             let n0 = t.cross(up).normalize();
             let b0 = t.cross(n0).normalize();
-            let base_r = radii[ri.min(radii.len() - 1)];
+            let r = radii[ri.min(radii.len() - 1)];
             for s in 0..sides {
                 let a = s as f32 / sides as f32 * std::f32::consts::TAU;
                 let dir = n0 * a.cos() + b0 * a.sin();
-                let r = if wobble > 0.0 {
-                    base_r * (1.0 + wobble * tube_wobble_at(ri, s, sides, seed))
-                } else {
-                    base_r
-                };
                 self.positions.push((p + dir * r).to_array());
                 self.normals.push(dir.to_array());
                 self.uvs
@@ -207,16 +179,10 @@ impl TubeBuilder {
     }
 }
 
-/// Single tapered tube with organic radius wobble (see [`TubeBuilder::add_organic`]).
-pub(crate) fn tube_mesh_organic(
-    points: &[Vec3],
-    radii: &[f32],
-    sides: usize,
-    wobble: f32,
-    seed: u64,
-) -> Mesh {
+/// Single tapered tube as its own mesh.
+pub(crate) fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
     let mut b = TubeBuilder::default();
-    b.add_organic(points, radii, sides, wobble, seed);
+    b.add(points, radii, sides);
     b.build()
 }
 
@@ -289,9 +255,7 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
         if dir.length_squared() < 1e-6 {
             dir = Vec3::Y;
         }
-        // Start the root *inside* the soma surface (along its outgoing direction) so the flared base
-        // erupts from and fuses with the cell body, instead of sprouting from the dead centre.
-        let mut p = node + dir * node_r * crate::tuning::DEND_EMBED;
+        let mut p = node;
         let mut pts = vec![p];
         for _ in 0..segs {
             let jitter =
@@ -300,8 +264,8 @@ pub(crate) fn dendrite_mesh(node: Vec3, count: usize, node_r: f32, seed: u64) ->
             p += dir * seg_len;
             pts.push(p);
         }
-        let radii = dendrite_radii(pts.len(), node_r * crate::tuning::DEND_ROOT_R);
-        builder.add_organic(&pts, &radii, 5, crate::tuning::TUBE_WOBBLE, s);
+        let radii = dendrite_radii(pts.len(), node_r * 0.12);
+        builder.add(&pts, &radii, 5);
     }
     builder.build()
 }
