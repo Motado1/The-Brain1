@@ -18,6 +18,17 @@ Replaced the discrete dot pulse with a continuous Gaussian wave gliding along th
       connections should root *into* the cell bodies (no fat tube stabbing straight through a soma,
       no surface gap). Knobs: `density_radii` in `geometry.rs` (raise the 45/34 vector for more
       spread); `ROOT_EMBED` in `tuning.rs` (lower = deeper fuse). This was the owner's "looks off".
+- [ ] **Soma + connector look pass (from owner reference images — thin tendrils + granular core).**
+      Owner wants connectors as **thin tapering tendrils** (not fat trumpets) and somas as a **granular
+      textured mass with a glowing core through a translucent membrane**. Changed: `ROOT_FLARE`
+      0.42→0.15 + connection waist 0.045→0.04 (thin connectors); `SOMA_BUMP` 0.18→0.28 (granular
+      silhouette); `RIM_ALPHA` 0.85→0.68 (translucent membrane, core glows through). All in `tuning.rs`
+      except the waist (scene.rs `axon_radii` call). *Distant neurons already read well; the test is the
+      foreground close-up.* If connectors still too fat → lower `ROOT_FLARE`; still washed/opaque →
+      lower `RIM_ALPHA` + shrink the nucleus/halo billboard scales (`r*1.6` / `r*3.5` in scene.rs);
+      want richer warm colour → the theme is desaturated, deepen it in `theme_rgb` (scene.rs ~400).
+      *Deeper granular surface (smoky micro-crevice light-scatter) needs the planned soma.wgsl noise
+      (runtime-WGSL, not built).*
 - [ ] **NEXT Slice 3** (not built): radius "pump" via vertex displacement — owner already said yes.
 
 ## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)

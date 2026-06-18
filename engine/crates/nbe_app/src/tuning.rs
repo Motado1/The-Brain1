@@ -42,8 +42,9 @@ pub(crate) const QUEUE_CAP: usize = 2;
 pub(crate) const RIM_POWER: f32 = 2.5;
 /// Rim glow brightness.
 pub(crate) const RIM_INTENSITY: f32 = 1.6;
-/// Rim opacity (centre stays clear).
-pub(crate) const RIM_ALPHA: f32 = 0.85;
+/// Rim opacity (centre stays clear). Lower = more translucent membrane, so the glowing core reads
+/// *through* the cell body (the reference look) instead of a flat opaque shell.
+pub(crate) const RIM_ALPHA: f32 = 0.68;
 
 // Dendrites share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit membrane look),
 // but a touch softer — a thin branch is almost all grazing-angle surface, so a sharper rim + lower
@@ -61,14 +62,16 @@ pub(crate) const DEND_RIM_ALPHA: f32 = 0.28;
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
 /// enough resolution for the noise bumps to read without exploding draw cost.
 pub(crate) const SOMA_SUBDIV: u8 = 3;
-/// Bump depth as a fraction of radius — how lumpy/granular the silhouette is.
-pub(crate) const SOMA_BUMP: f32 = 0.18;
+/// Bump depth as a fraction of radius — how lumpy/granular the silhouette is. Pushed up so the cell
+/// body reads as a textured granular mass (reference look), not a smooth ball.
+pub(crate) const SOMA_BUMP: f32 = 0.28;
 /// Number of distinct displaced soma meshes in the shared pool (picked per-node by hash) so the
 /// cells vary without a unique mesh per neuron.
 pub(crate) const SOMA_VARIANTS: usize = 6;
-/// Root flare: each filament end widens to this fraction of the soma radius where it meets the body
-/// (Target 2 — "tree root gripping the soil"). Was 0.16 when the filament merely kissed the surface.
-pub(crate) const ROOT_FLARE: f32 = 0.42;
+/// Root flare: each connector end widens to this fraction of the soma radius where it meets the body.
+/// Kept small so connectors read as thin tapering tendrils with only a modest base flare (reference
+/// look), not the fat double-ended trumpets that ballooned at 0.42.
+pub(crate) const ROOT_FLARE: f32 = 0.15;
 /// How far inside the soma surface a filament starts, as a fraction of radius, so its flare embeds
 /// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface; lower = deeper
 /// inside (no surface gap). Dropped from 0.82 so connectors fully fuse into the cell body.

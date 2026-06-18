@@ -688,7 +688,7 @@ fn build_scene(
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
                 // Thin waist, flaring wide where it grips each soma.
-                let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.045);
+                let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.04);
                 // Unified glassy tube material (same Fresnel as the dendrites) that also carries the
                 // travelling pulse wave. `fwd_edge` = the i→j directed edge wire() is about to push,
                 // so the wave system can orient a pulse's `t` to this tube's uv.x.
