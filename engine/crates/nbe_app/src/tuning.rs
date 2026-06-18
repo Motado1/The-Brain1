@@ -100,6 +100,12 @@ pub(crate) const DEND_BRANCH_DEPTH: u32 = 3;
 /// tree is continuous thick-trunk → hair-thin twigs.
 pub(crate) const DEND_BRANCH_TAPER: f32 = 0.55;
 
+// ---- navigation (cinematic camera glide + omni-search fly-to) ---------------------------
+/// Duration of a cinematic camera glide (sidebar / search / Esc fly-to), seconds. Cubic ease-in/out.
+pub(crate) const GLIDE_SECS: f32 = 1.1;
+/// Orbit radius the omni-search lands at when it flies you to a node.
+pub(crate) const OMNI_FLY_RADIUS: f32 = 20.0;
+
 // ---- level-of-detail (macro→micro cosmic scaling) ---------------------------------------
 // Anchored on the camera: detail_for_distance() maps these to a 0..1 cubic-smoothed detail value.
 // Tune from a screenshot — they depend on the scene's overall scale (network radii ~ cbrt(n)*32).

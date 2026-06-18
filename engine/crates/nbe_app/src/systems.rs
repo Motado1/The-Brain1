@@ -22,6 +22,8 @@ pub(crate) fn orbit_camera(
     mut motion: MessageReader<MouseMotion>,
     mut wheel: MessageReader<MouseWheel>,
     mut target: ResMut<CameraTarget>,
+    mut glide: ResMut<CameraGlide>,
+    omni: Res<OmniSearch>,
     registry: Res<NodeRegistry>,
     ui: Res<UiPointer>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -50,11 +52,17 @@ pub(crate) fn orbit_camera(
         scroll = 0.0;
     }
 
-    // Esc unfocuses to the whole-scene view.
-    if keys.just_pressed(KeyCode::Escape) {
-        target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
+    // Esc unfocuses to the whole-scene view — unless the omni-search overlay is open, where Esc
+    // closes the overlay instead (handled in the egui pass) and shouldn't also move the camera.
+    if keys.just_pressed(KeyCode::Escape) && !omni.open {
+        glide.to(registry.galaxy_center, registry.galaxy_radius * 1.35);
     }
-    // Manual rotate/pan cancels an active fly-to. (Scroll instead *drives* a smooth zoom below.)
+    // Manual rotate/pan/scroll cancels any in-flight cinematic glide or zoom target — the user has
+    // taken back control. (Scroll then *drives* the smooth zoom below.)
+    if drag != Vec2::ZERO || scroll != 0.0 {
+        glide.request = None;
+        glide.flight = None;
+    }
     if drag != Vec2::ZERO {
         target.0 = None;
     }
@@ -62,7 +70,28 @@ pub(crate) fn orbit_camera(
     let cursor = windows.single().ok().and_then(|w| w.cursor_position());
 
     for (mut orbit, mut transform, camera, cam_global) in &mut query {
-        if let Some((focus, radius)) = target.0 {
+        // Begin a cinematic glide if one was requested (capture the current camera as the start).
+        if let Some((end_focus, end_radius)) = glide.request.take() {
+            glide.flight = Some(Flight {
+                start_focus: orbit.focus,
+                start_radius: orbit.radius,
+                end_focus,
+                end_radius,
+                t: 0.0,
+                dur: GLIDE_SECS,
+            });
+            target.0 = None; // a glide supersedes the zoom target
+        }
+        if let Some(f) = glide.flight.as_mut() {
+            // Fixed-duration cubic ease-in/out — accelerate out, decelerate into frame.
+            f.t = (f.t + time.delta_secs() / f.dur).min(1.0);
+            let e = ease_in_out_cubic(f.t);
+            orbit.focus = f.start_focus.lerp(f.end_focus, e);
+            orbit.radius = f.start_radius + (f.end_radius - f.start_radius) * e;
+            if f.t >= 1.0 {
+                glide.flight = None;
+            }
+        } else if let Some((focus, radius)) = target.0 {
             let k = (time.delta_secs() * 3.5).min(1.0);
             orbit.focus = orbit.focus.lerp(focus, k);
             orbit.radius += (radius - orbit.radius) * k;

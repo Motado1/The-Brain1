@@ -9,13 +9,15 @@ use crate::domain::*;
 use crate::nav::*;
 use crate::now_unix;
 use crate::panel::*;
+use crate::search::fuzzy_rank;
+use crate::tuning::*;
 
 // ---- UI + camera -----------------------------------------------------------------------
 
 pub(crate) fn sidebar_ui(
     mut contexts: EguiContexts,
     registry: Res<NodeRegistry>,
-    mut target: ResMut<CameraTarget>,
+    mut glide: ResMut<CameraGlide>,
     mut control: ResMut<SceneControl>,
     db_path: Res<DbPath>,
 ) {
@@ -52,7 +54,7 @@ pub(crate) fn sidebar_ui(
                 ui.label(&control.status);
             }
             if ui.button("Galaxy view").clicked() {
-                target.0 = Some((registry.galaxy_center, registry.galaxy_radius * 1.35));
+                glide.to(registry.galaxy_center, registry.galaxy_radius * 1.35);
             }
             ui.small("left-drag orbit · right-drag pan · scroll fly · Esc unfocus");
             ui.separator();
@@ -64,16 +66,16 @@ pub(crate) fn sidebar_ui(
                     .show(ui, |ui| {
                         if ui.button("→ go to network").clicked() {
                             let (c, r) = registry.network_view(network);
-                            target.0 = Some((c, r));
+                            glide.to(c, r);
                         }
                         if network == Network::Business {
                             ui.label(format!(
                                 "Total revenue: {}",
                                 format_cents(registry.total_revenue_cents)
                             ));
-                            client_list(ui, &registry, &mut target);
+                            client_list(ui, &registry, &mut glide);
                         } else {
-                            knowledge_list(ui, &registry, &mut target);
+                            knowledge_list(ui, &registry, &mut glide);
                         }
                     });
             }
@@ -81,7 +83,7 @@ pub(crate) fn sidebar_ui(
 }
 
 /// Business clients, each expandable to its revenue + renewal date, with a fly-to button.
-fn client_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTarget) {
+fn client_list(ui: &mut egui::Ui, registry: &NodeRegistry, glide: &mut CameraGlide) {
     let mut items: Vec<(usize, &NodeInfo)> = registry
         .nodes
         .iter()
@@ -106,7 +108,7 @@ fn client_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTa
                             None => ui.label("Renewal: —"),
                         };
                         if ui.button("→ fly to").clicked() {
-                            target.0 = Some((ni.pos, 22.0));
+                            glide.to(ni.pos, 22.0);
                         }
                     });
             }
@@ -114,7 +116,7 @@ fn client_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTa
 }
 
 /// Research notes, each a fly-to button.
-fn knowledge_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut CameraTarget) {
+fn knowledge_list(ui: &mut egui::Ui, registry: &NodeRegistry, glide: &mut CameraGlide) {
     let mut items: Vec<&NodeInfo> = registry
         .nodes
         .iter()
@@ -127,7 +129,7 @@ fn knowledge_list(ui: &mut egui::Ui, registry: &NodeRegistry, target: &mut Camer
         .show(ui, |ui| {
             for ni in items {
                 if ui.button(&ni.name).clicked() {
-                    target.0 = Some((ni.pos, 18.0));
+                    glide.to(ni.pos, 18.0);
                 }
             }
         });
@@ -206,4 +208,128 @@ pub(crate) fn sync_ui_pointer(mut contexts: EguiContexts, mut ui: ResMut<UiPoint
     if let Ok(ctx) = contexts.ctx_mut() {
         ui.over = ctx.is_pointer_over_area() || ctx.wants_pointer_input();
     }
+}
+
+/// Toggle the omni-search overlay with Ctrl+P or Cmd+K (the Raycast/Spotlight gesture).
+pub(crate) fn omni_toggle(keys: Res<ButtonInput<KeyCode>>, mut omni: ResMut<OmniSearch>) {
+    let modifier = keys.pressed(KeyCode::ControlLeft)
+        || keys.pressed(KeyCode::ControlRight)
+        || keys.pressed(KeyCode::SuperLeft)
+        || keys.pressed(KeyCode::SuperRight);
+    if modifier && (keys.just_pressed(KeyCode::KeyP) || keys.just_pressed(KeyCode::KeyK)) {
+        omni.open = !omni.open;
+        omni.selected = 0;
+    }
+}
+
+fn kind_word(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Client => "client",
+        Kind::Ledger => "ledger",
+        Kind::Knowledge => "note",
+    }
+}
+
+/// Centred floating omni-search command bar (Ctrl+P / Cmd+K). Types run an offline fuzzy scan across
+/// the loaded node corpus; ↑/↓ moves the selection and Enter flies the camera to the chosen node with
+/// a cinematic glide. Esc (or clicking away / toggling again) dismisses it.
+pub(crate) fn omni_search_ui(
+    mut contexts: EguiContexts,
+    mut omni: ResMut<OmniSearch>,
+    registry: Res<NodeRegistry>,
+    mut glide: ResMut<CameraGlide>,
+) {
+    if !omni.open {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        omni.open = false;
+        return;
+    }
+    let move_down = ctx.input(|i| i.key_pressed(egui::Key::ArrowDown));
+    let move_up = ctx.input(|i| i.key_pressed(egui::Key::ArrowUp));
+    let submit = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+
+    let labels: Vec<&str> = registry.nodes.iter().map(|n| n.name.as_str()).collect();
+    let mut chosen: Option<usize> = None;
+
+    egui::Window::new("omni_search")
+        .title_bar(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_TOP, [0.0, 140.0])
+        .fixed_size([560.0, 0.0])
+        .show(ctx, |ui| {
+            let edit = ui.add(
+                egui::TextEdit::singleline(&mut omni.query)
+                    .hint_text("Search the brain…   ↑↓ to move · Enter to fly")
+                    .desired_width(f32::INFINITY)
+                    .font(egui::TextStyle::Heading),
+            );
+            edit.request_focus();
+            ui.separator();
+
+            let ranked = fuzzy_rank(&omni.query, &labels);
+            if move_down {
+                omni.selected = omni.selected.saturating_add(1);
+            }
+            if move_up {
+                omni.selected = omni.selected.saturating_sub(1);
+            }
+            omni.selected = if ranked.is_empty() {
+                0
+            } else {
+                omni.selected.min(ranked.len() - 1)
+            };
+
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                for (row, &ni) in ranked.iter().take(20).enumerate() {
+                    let n = &registry.nodes[ni];
+                    let label = format!("{}    ·    {} / {}", n.name, n.network.label(), kind_word(n.kind));
+                    if ui.selectable_label(row == omni.selected, label).clicked() {
+                        chosen = Some(ni);
+                    }
+                }
+                if ranked.is_empty() && !omni.query.trim().is_empty() {
+                    ui.weak("no matches");
+                }
+            });
+
+            if submit && !ranked.is_empty() {
+                chosen = Some(ranked[omni.selected.min(ranked.len() - 1)]);
+            }
+        });
+
+    if let Some(ni) = chosen {
+        if let Some(n) = registry.nodes.get(ni) {
+            glide.to(n.pos, OMNI_FLY_RADIUS);
+        }
+        omni.open = false;
+        omni.query.clear();
+        omni.selected = 0;
+    }
+}
+
+/// One-shot glassmorphic theme: deeply translucent dark panels so the glowing 3D dendrites and
+/// background bokeh drift behind the UI, with paper-thin rim-glow borders echoing the soma Fresnel
+/// look. (egui can't truly *blur* the framebuffer behind a panel — that needs a custom render pass —
+/// so this delivers the translucency + thin emissive trim; real frosted blur is a later slice.)
+pub(crate) fn configure_theme(mut contexts: EguiContexts, mut done: Local<bool>) {
+    if *done {
+        return;
+    }
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    let mut visuals = egui::Visuals::dark();
+    let glass = egui::Color32::from_rgba_unmultiplied(10, 15, 25, 140); // ≈ rgba(10,15,25,0.55)
+    visuals.panel_fill = glass;
+    visuals.window_fill = glass;
+    visuals.extreme_bg_color = egui::Color32::from_rgba_unmultiplied(6, 10, 18, 160);
+    // Paper-thin border with a soft cool rim-glow, mimicking the cell-wall Fresnel.
+    visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 165, 225, 70));
+    ctx.set_visuals(visuals);
+    *done = true;
 }

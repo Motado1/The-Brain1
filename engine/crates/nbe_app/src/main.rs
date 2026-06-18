@@ -20,6 +20,7 @@ mod lod;
 mod nav;
 mod panel;
 mod scene;
+mod search;
 mod shaders;
 mod systems;
 mod tuning;
@@ -100,6 +101,8 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.009, 0.011, 0.017)))
         .insert_resource(DbPath(db_path_from_args()))
         .insert_resource(CameraTarget::default())
+        .insert_resource(CameraGlide::default())
+        .insert_resource(OmniSearch::default())
         .insert_resource(NodeRegistry::default())
         .insert_resource(BrainGraph::default())
         .insert_resource(EdgeTraffic::default())
@@ -117,12 +120,21 @@ fn main() {
         .add_systems(Startup, (load_graph, setup_hud, spawn_lights))
         .add_systems(
             EguiPrimaryContextPass,
-            (sidebar_ui, business_panel_ui, detail_panel_ui, sync_ui_pointer).chain(),
+            (
+                configure_theme,
+                sidebar_ui,
+                business_panel_ui,
+                detail_panel_ui,
+                omni_search_ui,
+                sync_ui_pointer,
+            )
+                .chain(),
         )
         .add_systems(
             Update,
             (
                 pick_node,
+                omni_toggle,
                 orbit_camera,
                 compute_lod,
                 apply_lod_reveal,
