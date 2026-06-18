@@ -6,17 +6,37 @@
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
-**Continuous pulse WAVE (replacing dot pulses) — Slice 1 of 3 done.** `PulseWaveMaterial`
-(`pulse_wave.wgsl` + `shaders.rs`): the soma's glassy Fresnel rest state PLUS a travelling Gaussian
-energy surge `exp(-(uv.x - t_center)²/2w²)` along the tube (HDR crest → bloom = liquid wave). The old
-billboard `Pulse` is now a logical timeline only; `drive_pulse_waves` (systems.rs) maps each active
-`Pulse.t` → its connection tube's `wave` uniform (oriented via `ConnectionWave.fwd_edge`), touching
-only active/just-idle materials (`WaveActive`). Connections now wear this unified glassy material
-(match the dendrites). Tunables `PULSE_SPEED`(0.3)`/PULSE_WIDTH`(0.07, small tight crest)`/PULSE_WAVE_AMP`. Channels now
-rest `CHANNEL_COOLDOWN`(2s) after absorbing a pulse — `tick_channels` counts down then releases the
-next queued (reverse) pulse, giving an absorb→pause→reply rhythm instead of instant ping-pong. ⚠ runtime WGSL — naga
-validates on the GPU. **NEXT: Slice 2** = extend the wave to dendrite trees (fire surges out from the
-soma); **Slice 3** = radius "pump" (vertex displacement). Removed `PulseAssets` + the dot billboard.
+**Continuous pulse WAVE replacing the dot pulses — Slice 1 of 3 done & owner-confirmed.** The old
+billboard "dot" pulse is gone; energy now travels as a glowing wave along the connection tubes.
+- **Shader/material:** `PulseWaveMaterial` (`pulse_wave.wgsl` + `shaders.rs`) = the soma's glassy
+  Fresnel rest state PLUS a travelling Gaussian crest `exp(-(uv.x - t_center)²/2w²)` along the tube
+  length (HDR crest → bloom = liquid wave). Per-tube material instance. ⚠ **runtime WGSL — naga
+  validates on the GPU, not at build;** if tubes render pink/black/invisible, get the console `naga`
+  error.
+- **Driving:** `Pulse` is now a *logical timeline only* (no mesh). `drive_pulse_waves` (systems.rs)
+  maps each active `Pulse.t` → its connection's `wave` uniform, oriented to uv via
+  `ConnectionWave.fwd_edge`, touching only active/just-idle materials (`WaveActive` set) so idle
+  tubes aren't re-uploaded each frame.
+- **Rhythm (owner-confirmed):** channels rest `CHANNEL_COOLDOWN`(2s) after absorbing a pulse.
+  `advance_pulses` frees the channel + sets cooldown on arrival (no instant re-launch);
+  `tick_channels` counts the rest down then releases the next queued (reverse) pulse;
+  `fire_scheduler` only claims a channel that's free AND rested. Net: arrive → ~2s pause → reply
+  back, no ping-pong.
+- **Tunables (`tuning.rs`):** `PULSE_SPEED`=0.3 (owner: "perfect"), `PULSE_WIDTH`=0.07 (small tight
+  crest, owner-confirmed), `PULSE_WAVE_AMP`=2.6, `CHANNEL_COOLDOWN`=2.0.
+- **Cleanup:** removed `PulseAssets`, the dot billboard, and the now-dead `GraphNode.network` /
+  `GraphEdge.path` fields. Connections now wear the unified glassy material (same family as dendrites).
+
+**OPEN — owner feedback still to action:** owner says the **connections & dendrites still "look
+off"** (the tube look itself, separate from the wave). Need one word on whether "off" = **color**
+(too pale/beige), **thickness** (too fat vs delicate filaments), or **opacity** (too opaque vs
+translucent glass) so Slice 2 targets it precisely. The wave + pulse rhythm are GOOD per the owner.
+
+**NEXT — Slice 2:** extend the wave onto the **dendrite trees** so a firing neuron's light surges
+outward through its branches (unify dendrites onto `PulseWaveMaterial`, trigger a wave on fire).
+**Slice 3:** radius "pump" — vertex displacement so the tube visibly swells as the crest passes
+(owner already said yes to this). Build as separate verifiable slices; don't stack the vertex-shader
+risk on top of Slice 2 until Slice 2 validates.
 
 
 **Cosmic-scaling workspace (4-system arch, in progress).** Goal: abandon orbit/satellite placement;

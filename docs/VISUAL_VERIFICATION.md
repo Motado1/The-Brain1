@@ -1,5 +1,19 @@
 # Pending visual / interaction verification
 
+## ⏳⏳⏳ NEWEST — pulse WAVE (Slice 1) + channel cooldown — runtime WGSL
+Replaced the discrete dot pulse with a continuous Gaussian wave gliding along the connection tubes
+(`PulseWaveMaterial` / `pulse_wave.wgsl`), plus a per-channel rest so signals don't ping-pong.
+- [x] **Wave travels along connections** — owner confirmed the pulsing looks good.
+- [x] **Travel speed** — `PULSE_SPEED`=0.3, owner: "perfect".
+- [x] **Wave length / crest size** — `PULSE_WIDTH`=0.07 (small tight crest), owner-confirmed.
+- [x] **Absorb → pause → reply rhythm** — `CHANNEL_COOLDOWN`=2s, no ping-pong (owner-requested).
+- [ ] **⚠ Shader validates at RUNTIME (naga), not at build.** If connection tubes render
+      pink/black/invisible, it's a WGSL error — send the console `naga`/shader error.
+- [ ] **OPEN: connections + dendrites "look off"** (the tube look, not the wave). Decide whether it's
+      **colour** (too pale/beige), **thickness** (too fat vs delicate filaments), or **opacity** (too
+      opaque vs translucent glass). Feeds **Slice 2** (unify dendrites onto `PulseWaveMaterial` + light
+      them on fire) and **Slice 3** (radius "pump" via vertex displacement — owner already said yes).
+
 ## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)
 Goal (from the owner's reference images + Gemini's "anatomy of the real node"): somas read as a
 **textured granular mass** with filaments **erupting like roots** from the surface, light compounding
