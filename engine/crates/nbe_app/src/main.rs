@@ -133,6 +133,7 @@ fn main() {
                 fire_scheduler,
                 fire_render,
                 advance_pulses,
+                tick_channels,
                 drive_pulse_waves,
                 drift_motes,
                 apply_reload,

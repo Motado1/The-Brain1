@@ -213,6 +213,35 @@ fn spawn_pulse(commands: &mut Commands, graph: &BrainGraph, edge_idx: usize, see
     ));
 }
 
+/// Count down each connection's rest period; once a channel has rested and is free, release the next
+/// queued pulse (typically the reply heading back the other way). This is what gives the
+/// absorb → pause → reply-back rhythm instead of pulses ping-ponging instantly.
+pub(crate) fn tick_channels(
+    time: Res<Time>,
+    graph: Res<BrainGraph>,
+    mut traffic: ResMut<EdgeTraffic>,
+    mut commands: Commands,
+) {
+    let dt = time.delta_secs();
+    let mut seed = time.elapsed().as_nanos() as u64;
+    for c in 0..traffic.channels.len() {
+        let ch = &mut traffic.channels[c];
+        if ch.cooldown > 0.0 {
+            ch.cooldown -= dt;
+            continue; // still resting
+        }
+        if !ch.busy {
+            if let Some(next) = ch.queue.pop_front() {
+                ch.busy = true;
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                spawn_pulse(&mut commands, &graph, next, seed);
+            }
+        }
+    }
+}
+
 /// Drive the continuous Gaussian energy wave along each connection from its active pulse timeline.
 /// Only materials that are active (or just went idle) are touched, so idle tubes aren't re-uploaded.
 pub(crate) fn drive_pulse_waves(
@@ -283,12 +312,12 @@ pub(crate) fn fire_scheduler(
                 let Some(ch) = traffic.channels.get_mut(c) else {
                     continue;
                 };
-                if !ch.busy {
-                    // claim the connection and send the pulse.
+                if !ch.busy && ch.cooldown <= 0.0 {
+                    // claim the rested connection and send the pulse.
                     ch.busy = true;
                     spawn_pulse(&mut commands, &graph, e, seed);
                 } else if ch.queue.len() < QUEUE_CAP && !ch.queue.contains(&e) {
-                    // connection in use — queue this direction behind the current pulse.
+                    // connection in use or resting — queue this direction; it releases after cooldown.
                     ch.queue.push_back(e);
                 }
                 seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -351,19 +380,17 @@ pub(crate) fn advance_pulses(
         };
         pulse.t += pulse.speed * dt;
         if pulse.t >= 1.0 {
+            // Fully absorbed by the receiving node.
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {
                     f.accumulator += pulse.energy;
                 }
             }
-            // Release the connection: hand it to the next queued pulse, or free it.
-            let channel = edge.channel;
-            if let Some(ch) = traffic.channels.get_mut(channel) {
-                if let Some(next) = ch.queue.pop_front() {
-                    spawn_pulse(&mut commands, &graph, next, ent.to_bits());
-                } else {
-                    ch.busy = false;
-                }
+            // Rest the connection: it stays quiet for CHANNEL_COOLDOWN before any queued (reverse)
+            // pulse is released — see tick_channels — so signals don't ping-pong.
+            if let Some(ch) = traffic.channels.get_mut(edge.channel) {
+                ch.busy = false;
+                ch.cooldown = CHANNEL_COOLDOWN;
             }
             commands.entity(ent).despawn();
         }

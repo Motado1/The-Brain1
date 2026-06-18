@@ -112,6 +112,9 @@ pub(crate) struct EdgeTraffic {
 pub(crate) struct Channel {
     pub(crate) busy: bool,
     pub(crate) queue: VecDeque<usize>, // directed-edge indices waiting to traverse
+    /// Seconds the connection must rest after a pulse is absorbed before it can carry another — so a
+    /// signal is fully received and there's a beat before the reply travels back (no ping-pong).
+    pub(crate) cooldown: f32,
 }
 
 /// Links a connection's tube to its traffic `channel`, its forward directed-edge index (so a pulse's

@@ -20,6 +20,9 @@ pub(crate) const PULSE_SPEED: f32 = 0.3;
 pub(crate) const PULSE_WIDTH: f32 = 0.07;
 /// Emissive amplitude at the wave crest (HDR, so bloom blurs the surge into a bleeding wave).
 pub(crate) const PULSE_WAVE_AMP: f32 = 2.6;
+/// Rest a connection takes after absorbing a pulse before it may carry the next one (seconds). The
+/// pause between a signal arriving and the reply heading back.
+pub(crate) const CHANNEL_COOLDOWN: f32 = 2.0;
 /// Max pulses one fire emits (caps hub blow-ups; kept low so the scene stays calm).
 pub(crate) const MAX_PULSES_PER_FIRE: usize = 3;
 /// Per-network dust mote count — dense, like the bokeh-filled reference images.

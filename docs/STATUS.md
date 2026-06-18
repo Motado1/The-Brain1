@@ -12,7 +12,9 @@ energy surge `exp(-(uv.x - t_center)²/2w²)` along the tube (HDR crest → bloo
 billboard `Pulse` is now a logical timeline only; `drive_pulse_waves` (systems.rs) maps each active
 `Pulse.t` → its connection tube's `wave` uniform (oriented via `ConnectionWave.fwd_edge`), touching
 only active/just-idle materials (`WaveActive`). Connections now wear this unified glassy material
-(match the dendrites). Tunables `PULSE_SPEED/PULSE_WIDTH/PULSE_WAVE_AMP`. ⚠ runtime WGSL — naga
+(match the dendrites). Tunables `PULSE_SPEED`(0.3)`/PULSE_WIDTH`(0.07, small tight crest)`/PULSE_WAVE_AMP`. Channels now
+rest `CHANNEL_COOLDOWN`(2s) after absorbing a pulse — `tick_channels` counts down then releases the
+next queued (reverse) pulse, giving an absorb→pause→reply rhythm instead of instant ping-pong. ⚠ runtime WGSL — naga
 validates on the GPU. **NEXT: Slice 2** = extend the wave to dendrite trees (fire surges out from the
 soma); **Slice 3** = radius "pump" (vertex displacement). Removed `PulseAssets` + the dot billboard.
 
