@@ -349,9 +349,9 @@ fn grow_dendrite(
         dist[i] = dist[i - 1] + pts[i].distance(pts[i - 1]);
     }
     *max_u = max_u.max(dist[n - 1]);
-    // 8-sided so the tube is a smooth round cross-section (a glassy rod with a clear centre and a
+    // 10-sided so the tube is a smooth round cross-section (a glassy rod with a clear centre and a
     // rim outline), not a faceted prism that reads as flat under the Fresnel membrane shader.
-    builder.add_with_u(&pts, &radii, 8, &dist);
+    builder.add_with_u(&pts, &radii, 10, &dist);
     branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };

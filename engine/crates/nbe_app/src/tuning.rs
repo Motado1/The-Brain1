@@ -53,14 +53,19 @@ pub(crate) const RIM_ALPHA: f32 = 0.68;
 // Dendrites share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit membrane look),
 // but a touch softer — a thin branch is almost all grazing-angle surface, so a sharper rim + lower
 // intensity keeps the dense tree glowing gently instead of blowing out into solid bright threads.
-/// Rim sharpness for dendrite tubes — *very* high so the amber fill collapses to a thin silhouette
-/// outline and the tube's body goes clear/see-through (a cylinder needs a much sharper rim than the
-/// soma sphere to hollow out, since only its centreline faces the camera head-on).
-pub(crate) const DEND_RIM_POWER: f32 = 6.0;
-/// Rim glow brightness for dendrites (a crisp bright outline).
-pub(crate) const DEND_RIM_INTENSITY: f32 = 1.3;
-/// Rim opacity for dendrites — low so the body reads as clear glass, only the outline is solid.
-pub(crate) const DEND_RIM_ALPHA: f32 = 0.28;
+// Dendrites + connectors share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit
+// membrane), tuned for a glossy glass-rod look: a soft illuminated rim around the silhouette plus a
+// centreline sheen highlight (DEND_SHEEN), brightening as a pulse flows through.
+/// Rim sharpness for tubes — softer/broader than before (was 6.0) so the illuminated edge reads like
+/// the soma's glowing rim rather than a hairline outline.
+pub(crate) const DEND_RIM_POWER: f32 = 3.2;
+/// Rim glow brightness for tubes (a bright illuminated edge).
+pub(crate) const DEND_RIM_INTENSITY: f32 = 1.9;
+/// Rim opacity for tubes — moderate so the body still reads as glass, but the edge is clearly lit.
+pub(crate) const DEND_RIM_ALPHA: f32 = 0.34;
+/// Glossy sheen intensity: a soft highlight where the rounded tube surface faces the camera (the wet
+/// rod gloss). 0 = matte; higher = glossier centreline run.
+pub(crate) const DEND_SHEEN: f32 = 0.6;
 
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
