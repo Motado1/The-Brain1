@@ -53,19 +53,9 @@ pub(crate) const RIM_ALPHA: f32 = 0.68;
 // Dendrites share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit membrane look),
 // but a touch softer — a thin branch is almost all grazing-angle surface, so a sharper rim + lower
 // intensity keeps the dense tree glowing gently instead of blowing out into solid bright threads.
-// Dendrites + connectors share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit
-// membrane), tuned for a glossy glass-rod look: a soft illuminated rim around the silhouette plus a
-// centreline sheen highlight (DEND_SHEEN), brightening as a pulse flows through.
-/// Rim sharpness for tubes — softer/broader than before (was 6.0) so the illuminated edge reads like
-/// the soma's glowing rim rather than a hairline outline.
-pub(crate) const DEND_RIM_POWER: f32 = 3.2;
-/// Rim glow brightness for tubes (a bright illuminated edge).
-pub(crate) const DEND_RIM_INTENSITY: f32 = 1.9;
-/// Rim opacity for tubes — moderate so the body still reads as glass, but the edge is clearly lit.
-pub(crate) const DEND_RIM_ALPHA: f32 = 0.34;
-/// Glossy sheen intensity: a soft highlight where the rounded tube surface faces the camera (the wet
-/// rod gloss). 0 = matte; higher = glossier centreline run.
-pub(crate) const DEND_SHEEN: f32 = 0.6;
+// Connectors + dendrites now wear the EXACT same clear Fresnel membrane as the soma (RIM_POWER /
+// RIM_INTENSITY / RIM_ALPHA above) — no separate rim params, no sheen — so they read as the same
+// translucent cell-wall, just brightening where a pulse flows through (pulse_wave.wgsl).
 
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
@@ -80,11 +70,11 @@ pub(crate) const SOMA_VARIANTS: usize = 6;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
-pub(crate) const ROOT_FLARE: f32 = 0.4;
+pub(crate) const ROOT_FLARE: f32 = 0.24;
 /// Slender connector body radius (absolute) between the two funnels — the tunnel itself.
-pub(crate) const CONN_BODY: f32 = 0.13;
+pub(crate) const CONN_BODY: f32 = 0.07;
 /// Fraction of a connector's length each end funnel occupies (the rest is the slender tunnel body).
-pub(crate) const ROOT_FLARE_ZONE: f32 = 0.2;
+pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
 pub(crate) const ROOT_FLARE_POW: f32 = 2.6;
 /// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). Kept near

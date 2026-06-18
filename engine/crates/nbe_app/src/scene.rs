@@ -604,7 +604,7 @@ fn build_scene(
                 let (dr, dg, db) = theme_rgb(network);
                 let dwave_mat = waves.add(PulseWaveMaterial {
                     color: LinearRgba::new(dr, dg, db, 1.0),
-                    rest: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, DEND_SHEEN),
+                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
@@ -705,7 +705,7 @@ fn build_scene(
                 let fwd_edge = graph.edges.len();
                 let wave_mat = waves.add(PulseWaveMaterial {
                     color: LinearRgba::new(nr, ng, nb, 1.0),
-                    rest: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, DEND_SHEEN),
+                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
