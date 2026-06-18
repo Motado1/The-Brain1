@@ -408,6 +408,61 @@ pub(crate) fn displaced_sphere(subdivisions: u8, amp: f32, seed: u64) -> Mesh {
     mesh
 }
 
+/// The undirected nearest-neighbour links of a point cloud (each node to its `neighbours` closest),
+/// deduped, in a deterministic order. Shared by the soma builder (so each cell bulges toward its
+/// real connections) and the connector builder (so the tubes land on those bulges) — one source of
+/// truth for "who connects to whom". Returns pairs as first-encountered `(i, j)`.
+pub(crate) fn network_links(ps: &[Vec3], neighbours: usize) -> Vec<(usize, usize)> {
+    let mut linked: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for i in 0..ps.len() {
+        let mut nearest: Vec<(f32, usize)> = (0..ps.len())
+            .filter(|&j| j != i)
+            .map(|j| (ps[i].distance_squared(ps[j]), j))
+            .collect();
+        nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for &(_, j) in nearest.iter().take(neighbours) {
+            if linked.insert((i.min(j), i.max(j))) {
+                out.push((i, j));
+            }
+        }
+    }
+    out
+}
+
+/// A soma cell body: the granular displaced sphere (`displaced_sphere`) with its membrane pulled
+/// outward into smooth points toward each connection `dir` — a star-shaped body whose processes flow
+/// into the connector funnels (instead of a round ball with tubes poking in). `base` shrinks the body
+/// between connections so the bulges read as points; `reach` is how far a point extends; `tightness`
+/// (>1) sharpens each lobe. `dirs` are unit directions in the soma's local space.
+pub(crate) fn soma_mesh(
+    subdivisions: u8,
+    amp: f32,
+    seed: u64,
+    dirs: &[Vec3],
+    base: f32,
+    reach: f32,
+    tightness: f32,
+) -> Mesh {
+    let mut mesh = displaced_sphere(subdivisions, amp, seed);
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let pos = Vec3::from_array(*p);
+            let dir = pos.normalize_or_zero();
+            // Strongest alignment with any connection direction → a cosine lobe toward each process.
+            let mut bulge = 0.0f32;
+            for &d in dirs {
+                bulge = bulge.max(dir.dot(d).max(0.0).powf(tightness));
+            }
+            *p = (pos * base + dir * reach * bulge).to_array();
+        }
+    }
+    mesh.compute_normals();
+    mesh
+}
+
 /// A soft round radial-gradient texture (white core fading to transparent) for the glow halos.
 pub(crate) fn glow_texture() -> Image {
     const N: usize = 64;

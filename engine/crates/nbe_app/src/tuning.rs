@@ -64,9 +64,13 @@ pub(crate) const SOMA_SUBDIV: u8 = 3;
 /// Bump depth as a fraction of radius — how lumpy/granular the silhouette is. Pushed up so the cell
 /// body reads as a textured granular mass (reference look), not a smooth ball.
 pub(crate) const SOMA_BUMP: f32 = 0.28;
-/// Number of distinct displaced soma meshes in the shared pool (picked per-node by hash) so the
-/// cells vary without a unique mesh per neuron.
-pub(crate) const SOMA_VARIANTS: usize = 6;
+/// Soma body radius between connections (fraction of r) — shrunk below 1 so the connection bulges
+/// stand out as star-shaped points (the membrane flowing out into each process).
+pub(crate) const SOMA_BASE: f32 = 0.8;
+/// How far the membrane bulges outward toward each connection (fraction of r) — the process length.
+pub(crate) const SOMA_PROCESS_REACH: f32 = 0.32;
+/// Sharpness of each connection lobe (cosine power, >1 = tighter/pointier process toward the link).
+pub(crate) const SOMA_PROCESS_TIGHTNESS: f32 = 3.0;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
@@ -86,10 +90,9 @@ pub(crate) const ROOT_EMBED: f32 = 0.92;
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;
 
 // ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
-/// Where a dendrite trunk begins, as a fraction of the soma radius. Near the membrane shell (like
-/// connectors' ROOT_EMBED) so dendrites attach to the *clear membrane* and flow out from it — not
-/// start deep at the glowing core. Slightly under 1.0 so the flared base fuses into the shell.
-pub(crate) const DEND_EMBED: f32 = 0.9;
+/// Where a dendrite trunk begins, as a fraction of the soma radius — matched to SOMA_BASE so the
+/// trunk roots into the membrane shell between connection bulges (not deep at the core, not floating).
+pub(crate) const DEND_EMBED: f32 = 0.8;
 /// Trunk *base* width as a fraction of the soma radius — wide where it fuses with the soma, then a
 /// concave taper (DEND_ROOT_TAPER_POW) necks it down fast so only the fillet at the base is fat.
 pub(crate) const DEND_ROOT_R: f32 = 0.24;

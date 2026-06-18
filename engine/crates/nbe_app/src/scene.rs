@@ -367,11 +367,8 @@ fn build_scene(
     }
 
     // Spawn nodes + build the navigation registry. Each soma = a granular, lumpy structural mass
-    // (real 3D form, Target 1) under additive glow billboards (the light from within). A small shared
-    // pool of displaced-sphere variants gives organic variety without a unique mesh per neuron.
-    let soma_pool: Vec<Handle<Mesh>> = (0..SOMA_VARIANTS)
-        .map(|k| meshes.add(displaced_sphere(SOMA_SUBDIV, SOMA_BUMP, k as u64 + 1)))
-        .collect();
+    // (real 3D form) under additive glow billboards (the light from within), built per-node so the
+    // membrane bulges toward its connections (see soma_mesh in the node loop).
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let anatomy_mats = AnatomyMats::build(materials, &glow);
@@ -481,6 +478,22 @@ fn build_scene(
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut radius_of: HashMap<String, f32> = HashMap::new();
 
+    // Per-node connection directions (the same nearest-neighbour links the connectors use, via
+    // network_links) so each soma can bulge its membrane out toward its connections — a star-shaped
+    // body whose points flow into the connector funnels.
+    const NEIGHBOURS: usize = 3;
+    let mut conn_dirs: HashMap<String, Vec<Vec3>> = HashMap::new();
+    for ids in groups.values() {
+        let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
+        for (i, j) in network_links(&ps, NEIGHBOURS) {
+            let d = (ps[j] - ps[i]).normalize_or_zero();
+            if d.length_squared() > 0.0 {
+                conn_dirs.entry(ids[i].clone()).or_default().push(d);
+                conn_dirs.entry(ids[j].clone()).or_default().push(-d);
+            }
+        }
+    }
+
     for (&network, ids) in &groups {
         for id in ids {
             let kind = *kind_of.get(id).unwrap_or(&Kind::Knowledge);
@@ -529,11 +542,11 @@ fn build_scene(
                 .spawn((
                     Mesh3d(halo_quad.clone()),
                     MeshMaterial3d(core_mat.clone()),
-                    // Core kept smaller than the ~r membrane sphere so the clear membrane perfectly
-                    // surrounds the glowing nucleus (was r*1.6, which spilled past the shell).
-                    Transform::from_translation(p).with_scale(Vec3::splat(r * 0.9)),
+                    // Core kept inside the SOMA_BASE membrane (which now shrinks between connections)
+                    // so the clear membrane still surrounds the glowing nucleus.
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 0.66)),
                     Billboard,
-                    Breath { base: Vec3::splat(r * 0.9), phase, speed },
+                    Breath { base: Vec3::splat(r * 0.66), phase, speed },
                     Neuron(idx),
                     // Random initial charge so neurons don't all fire in lockstep.
                     Firing {
@@ -551,24 +564,26 @@ fn build_scene(
                     SceneItem,
                 ))
                 .id();
-            // Translucent cell body via the Fresnel "cell-wall" shader: glowing rim, clear centre —
-            // gives the soma real 3D structure while the additive nucleus reads as light within it.
-            let shape = Vec3::new(
-                r * (0.8 + rand01(id, 21) * 0.45),
-                r * (0.8 + rand01(id, 22) * 0.45),
-                r * (0.8 + rand01(id, 23) * 0.45),
-            );
-            let tilt = Quat::from_euler(
-                EulerRot::XYZ,
-                rand_unit(id, 24) * std::f32::consts::PI,
-                rand_unit(id, 25) * std::f32::consts::PI,
-                rand_unit(id, 26) * std::f32::consts::PI,
+            // Translucent cell body via the Fresnel "cell-wall" shader: glowing rim, clear centre.
+            // Built per-node, bulging the membrane outward toward each connection (soma_mesh) so the
+            // body is star-shaped and its points flow into the connector funnels. No tilt/non-uniform
+            // scale — the connection bulges + noise give the organic shape; uniform scale keeps the
+            // bulge directions (world space) aligned with the connectors.
+            let dirs: Vec<Vec3> = conn_dirs.get(id).cloned().unwrap_or_default();
+            let soma = soma_mesh(
+                SOMA_SUBDIV,
+                SOMA_BUMP,
+                hash_u64(id),
+                &dirs,
+                SOMA_BASE,
+                SOMA_PROCESS_REACH,
+                SOMA_PROCESS_TIGHTNESS,
             );
             commands.spawn((
-                Mesh3d(soma_pool[(hash_u64(id) as usize) % SOMA_VARIANTS].clone()),
+                Mesh3d(meshes.add(soma)),
                 MeshMaterial3d(soma_of[&network].clone()),
-                Transform { translation: p, rotation: tilt, scale: shape },
-                Breath { base: shape, phase, speed },
+                Transform::from_translation(p).with_scale(Vec3::splat(r)),
+                Breath { base: Vec3::splat(r), phase, speed },
                 SceneItem,
             ));
 
@@ -657,7 +672,6 @@ fn build_scene(
     // gives the delicate, evenly-woven web of the reference images (and makes both networks read
     // alike) instead of relying on the sparse, mostly-cross-domain data links. Firing propagates
     // along this mesh. (Semantic links return in the per-client zoom-in.)
-    const NEIGHBOURS: usize = 3;
     let mut channel_count = 0usize;
     for (&network, ids) in &groups {
         let (nr, ng, nb) = theme_rgb(network);
