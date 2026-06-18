@@ -529,9 +529,11 @@ fn build_scene(
                 .spawn((
                     Mesh3d(halo_quad.clone()),
                     MeshMaterial3d(core_mat.clone()),
-                    Transform::from_translation(p).with_scale(Vec3::splat(r * 1.6)),
+                    // Core kept smaller than the ~r membrane sphere so the clear membrane perfectly
+                    // surrounds the glowing nucleus (was r*1.6, which spilled past the shell).
+                    Transform::from_translation(p).with_scale(Vec3::splat(r * 0.9)),
                     Billboard,
-                    Breath { base: Vec3::splat(r * 1.6), phase, speed },
+                    Breath { base: Vec3::splat(r * 0.9), phase, speed },
                     Neuron(idx),
                     // Random initial charge so neurons don't all fire in lockstep.
                     Firing {

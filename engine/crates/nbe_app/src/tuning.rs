@@ -75,10 +75,10 @@ pub(crate) const ROOT_FLARE: f32 = 0.16;
 /// reads as one continuous branch that stays substantial along its length, not a pipe pinched to a
 /// thread in the middle. 1.0 = no taper (even tube); lower = more branch-like taper.
 pub(crate) const BRANCH_TIP_RATIO: f32 = 0.6;
-/// How far inside the soma surface a filament starts, as a fraction of radius, so its flare embeds
-/// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface; lower = deeper
-/// inside (no surface gap). Dropped from 0.82 so connectors fully fuse into the cell body.
-pub(crate) const ROOT_EMBED: f32 = 0.7;
+/// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). Kept near
+/// the surface so connectors attach to the *clear membrane shell* and flow out from there — not dive
+/// down into the glowing core. Slightly under 1.0 so the flared base fuses into the shell, no gap.
+pub(crate) const ROOT_EMBED: f32 = 0.92;
 /// Billboard scale of the additive glow dot placed at each filament→soma junction (Target 3 —
 /// light compounds where roots meet the surface). Slightly larger than the mid-filament beads.
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;
