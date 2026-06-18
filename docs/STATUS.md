@@ -4,6 +4,36 @@
 > **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
 > removed). Commit & push straight to `main`.
 
+## 🚨 BRANCH FORK — READ BEFORE BUILDING (2026-06-18)
+
+There are **two active chats on two diverged branches** building overlapping features. Resolve this
+before adding more, or the fork worsens.
+- **`main`** (canonical per CLAUDE.md) = this chat. Has the owner-**verified** organic visuals + pulse
+  rhythm: Gaussian pulse wave + channel cooldown, dendrite surge (uv-by-distance), `branch_radii`
+  trunk→branch taper, membrane-attach (`ROOT_EMBED` 0.92, core 0.9), deeper red, soma look passes.
+- **`claude/session-frontier-continue-jap19w`** = the OTHER chat. **9 commits not on main**, and it
+  independently built: **UI core (fuzzy omni-search + cinematic camera glide + glass theme)**,
+  **cosmic LOD (dendrite mesh tiers + screen-space min-size floor)**, per-network mote colour, AND its
+  own parallel **pulse-wave + dendrite-surge** rewrite + soma spacing. It LACKS main's 5 visual commits.
+- **They are NOT mechanically mergeable:** both rewrote the same core with incompatible data models
+  (`Pulse{arrived,fade}` vs main's cooldown model; `DendriteWave{age,active}` vs `{t,prev_intensity}`;
+  `geometry::dendrite_tree` rewritten by both — their LOD tiers vs main's uv-by-distance). A blind
+  auto-merge conflicts in tuning/components/geometry/scene and would not compile.
+- **A trial merge was attempted on a throwaway branch and ABORTED; `main` is untouched.**
+
+**Recommended consolidation (needs the owner + GPU verification — don't do blind):**
+1. Pick ONE canonical = **`main`** (CLAUDE.md mandate; has owner-verified visuals/pulse).
+2. **Stop the other chat from diverging further** (have it `git reset --hard origin/main` once
+   consolidated, like the owner's machine does).
+3. Base = main (keep its verified pulse/dendrite/visuals). Port the other branch's **net-new,
+   separable** features on top: `search.rs` + omni-search UI, `nav` camera-glide, glass theme, LOD
+   mesh tiers + `MinScreenSize`, mote colour. **Drop** the other branch's parallel pulse/dendrite
+   rewrite (main's is the verified one). The LOD tiers are fused into `dendrite_tree`, so that port
+   must be redone against main's uv-by-distance version — the one genuinely tricky piece.
+4. Each ported feature = a verifiable slice, compile + test green, owner verifies on the GPU.
+- **Dead branches** (0 unique commits, safe to delete anytime): `claude/claude-md-continuation-v10vu2`,
+  `claude/neural-business-engine-arch-h7i8xj`.
+
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
 **Continuous pulse WAVE replacing the dot pulses — Slice 1 of 3 done & owner-confirmed.** The old
