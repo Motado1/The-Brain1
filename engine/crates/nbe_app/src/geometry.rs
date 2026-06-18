@@ -213,20 +213,28 @@ pub(crate) fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
 /// a thread in the middle. It's full where it roots into the *thicker* soma (the trunk) and tapers
 /// smoothly toward the other end — concave, so it stays substantial along its length (no thin waist).
 /// `r0`/`r1` are the rooted radii at each end; the bigger one becomes the trunk base.
-pub(crate) fn branch_radii(n: usize, r0: f32, r1: f32, tip_ratio: f32) -> Vec<f32> {
-    let base = r0.max(r1);
-    let tip = (base * tip_ratio).min(r0.min(r1)); // taper toward the thinner end, but never below it
-    let mut radii: Vec<f32> = (0..n)
+/// Connector profile: a **tunnel** with a wide concave **funnel at each soma end** — the membrane
+/// flowing out and turning into the tube — necking down fast to a slender body. `mouth_a`/`mouth_b`
+/// are the wide funnel radii where it fuses into each cell body; `body` is the slim tunnel between
+/// them. `zone` is the fraction of the length each funnel occupies; `pow`>1 makes the neck concave
+/// (fat only right at the membrane, like a real soma process).
+pub(crate) fn connector_radii(
+    n: usize,
+    mouth_a: f32,
+    mouth_b: f32,
+    body: f32,
+    zone: f32,
+    pow: f32,
+) -> Vec<f32> {
+    (0..n)
         .map(|i| {
-            let t = i as f32 / (n - 1).max(1) as f32; // 0 = base end, 1 = tip end
-            (tip + (base - tip) * (1.0 - t).powf(1.3)).max(0.06)
+            let t = i as f32 / (n - 1).max(1) as f32; // 0 at soma a → 1 at soma b
+            let mouth = if t < 0.5 { mouth_a } else { mouth_b };
+            let edge = t.min(1.0 - t); // 0 at either end, 0.5 at the middle
+            let k = (edge / zone.max(1e-3)).min(1.0); // 0 at the end → 1 once past the funnel
+            (body + (mouth - body) * (1.0 - k).powf(pow)).max(0.03)
         })
-        .collect();
-    // Orient the thick base at whichever soma is larger (radii is built base→tip).
-    if r1 > r0 {
-        radii.reverse();
-    }
-    radii
+        .collect()
 }
 
 /// A dim, hair-thin tangle of background micro-fibers filling a network's volume — non-interactive

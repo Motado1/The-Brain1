@@ -77,13 +77,16 @@ pub(crate) const SOMA_BUMP: f32 = 0.28;
 /// Number of distinct displaced soma meshes in the shared pool (picked per-node by hash) so the
 /// cells vary without a unique mesh per neuron.
 pub(crate) const SOMA_VARIANTS: usize = 6;
-/// Root flare: a connector's thick (trunk) end widens to this fraction of the soma radius where it
-/// roots into the body — a branch flowing out of the cell, tapering toward the far end.
-pub(crate) const ROOT_FLARE: f32 = 0.16;
-/// How thin a connector tapers at its far (branch-tip) end, as a fraction of its rooted base — so it
-/// reads as one continuous branch that stays substantial along its length, not a pipe pinched to a
-/// thread in the middle. 1.0 = no taper (even tube); lower = more branch-like taper.
-pub(crate) const BRANCH_TIP_RATIO: f32 = 0.6;
+/// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
+/// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
+/// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
+pub(crate) const ROOT_FLARE: f32 = 0.4;
+/// Slender connector body radius (absolute) between the two funnels — the tunnel itself.
+pub(crate) const CONN_BODY: f32 = 0.13;
+/// Fraction of a connector's length each end funnel occupies (the rest is the slender tunnel body).
+pub(crate) const ROOT_FLARE_ZONE: f32 = 0.2;
+/// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
+pub(crate) const ROOT_FLARE_POW: f32 = 2.6;
 /// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). Kept near
 /// the surface so connectors attach to the *clear membrane shell* and flow out from there — not dive
 /// down into the glowing core. Slightly under 1.0 so the flared base fuses into the shell, no gap.
