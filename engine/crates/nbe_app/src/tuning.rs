@@ -18,8 +18,9 @@ pub(crate) const PULSE_ENERGY: f32 = 0.16;
 pub(crate) const PULSE_SPEED: f32 = 0.3;
 /// Gaussian half-width (sigma) of the wave as a fraction of the path — a small, tight crest.
 pub(crate) const PULSE_WIDTH: f32 = 0.07;
-/// Emissive amplitude at the wave crest (HDR, so bloom blurs the surge into a bleeding wave).
-pub(crate) const PULSE_WAVE_AMP: f32 = 2.6;
+/// Emissive amplitude at the wave crest (HDR, so the crest blooms *outside* the thin glass tube as
+/// the pulse passes — the light reads as travelling through the tube, not filling it).
+pub(crate) const PULSE_WAVE_AMP: f32 = 3.6;
 /// Rest a connection takes after absorbing a pulse before it may carry the next one (seconds). The
 /// pause between a signal arriving and the reply heading back.
 pub(crate) const CHANNEL_COOLDOWN: f32 = 2.0;
@@ -50,12 +51,17 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 /// *through* the cell body (the reference look) instead of a flat opaque shell.
 pub(crate) const RIM_ALPHA: f32 = 0.68;
 
-// Dendrites share the soma's Fresnel "cell-wall" shader (same translucent, rim-lit membrane look),
-// but a touch softer — a thin branch is almost all grazing-angle surface, so a sharper rim + lower
-// intensity keeps the dense tree glowing gently instead of blowing out into solid bright threads.
-// Connectors + dendrites now wear the EXACT same clear Fresnel membrane as the soma (RIM_POWER /
-// RIM_INTENSITY / RIM_ALPHA above) — no separate rim params, no sheen — so they read as the same
-// translucent cell-wall, just brightening where a pulse flows through (pulse_wave.wgsl).
+// Connectors + dendrites use the same Fresnel "cell-wall" shader as the soma, but a thin tube needs
+// a *sharp* rim to read as clear glass with a crisp light outline (the soma's soft rim, which looks
+// clear on a big sphere, just fills a narrow tube to a flat colour). High power → only a crisp edge
+// lights; the body stays see-through glass. The pulse light comes from the travelling wave crest
+// blooming outside the tube (pulse_wave.wgsl), not from filling the body.
+/// Rim sharpness for tubes — high, so only a crisp glass outline lights and the body stays clear.
+pub(crate) const TUBE_RIM_POWER: f32 = 7.0;
+/// Rim glow brightness for the tube outline (HDR → the edge blooms).
+pub(crate) const TUBE_RIM_INTENSITY: f32 = 2.4;
+/// Rim opacity for tubes — the body is near-transparent glass, only the thin outline is solid.
+pub(crate) const TUBE_RIM_ALPHA: f32 = 0.5;
 
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
