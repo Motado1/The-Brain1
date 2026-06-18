@@ -7,7 +7,8 @@
 #import bevy_pbr::mesh_view_bindings::view
 
 @group(3) @binding(0) var<uniform> color: vec4<f32>; // rgb tube colour (a unused)
-// x = rim power, y = rim intensity, z = rim alpha, w = unused — identical to the soma membrane.
+// x = rim power, y = rim intensity, z = rim alpha, w = inner-core fill (0 = hollow glass tube;
+// >0 = a solid glowing wire core — "the wire inside the glass").
 @group(3) @binding(1) var<uniform> rest: vec4<f32>;
 // x = wave centre t (0..1 along the path), y = amplitude (0 = idle), z = width (sigma), w = unused.
 @group(3) @binding(2) var<uniform> wave: vec4<f32>;
@@ -20,6 +21,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let fresnel = pow(1.0 - facing, rest.x);              // clear-membrane Fresnel, exactly like soma
     var rgb = rest.y * color.rgb * fresnel;               // glowing cell wall
     var a = clamp(fresnel * rest.z + 0.015, 0.0, 1.0);    // transparent centre, lit rim
+    // Inner-core fill: a solid saturated glow through the whole cross-section (not just the rim), so
+    // the thin inner mesh reads as a bright wire of energy. Zero for the hollow outer/connector tubes.
+    rgb += color.rgb * rest.w;
+    a = clamp(a + rest.w, 0.0, 1.0);
 
     // Travelling Gaussian surge: brightest where uv.x == wave centre, falling off over `width`.
     let w = max(wave.z, 0.001);

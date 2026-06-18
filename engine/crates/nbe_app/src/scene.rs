@@ -616,18 +616,27 @@ fn build_scene(
                 if let Some(an) = anatomy.get(id) {
                     embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
                 }
-                let (dr, dg, db) = theme_rgb(network);
-                let dwave_mat = waves.add(PulseWaveMaterial {
-                    color: LinearRgba::new(dr, dg, db, 1.0),
-                    rest: Vec4::new(TUBE_RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, 0.0),
+                // Outer membrane: the SAME Fresnel cell-wall material as the soma (translucent,
+                // rim-lit, bumpy) flowing continuously out from the body. Static — no wave.
+                commands.spawn((
+                    Mesh3d(meshes.add(tree.membrane)),
+                    MeshMaterial3d(soma_of[&network].clone()),
+                    Transform::default(),
+                    SceneItem,
+                ));
+                // Inner core: the bright amber "wire inside the glass" — a solid glowing filament
+                // (rest.w = DEND_CORE_GLOW) that carries the firing surge wave through the membrane.
+                let core_mat = waves.add(PulseWaveMaterial {
+                    color: LinearRgba::new(1.0, 0.5, 0.12, 1.0), // warm amber energy (tunable)
+                    rest: Vec4::new(TUBE_RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_CORE_GLOW),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
-                    Mesh3d(meshes.add(tree.mesh)),
-                    MeshMaterial3d(dwave_mat.clone()),
+                    Mesh3d(meshes.add(tree.core)),
+                    MeshMaterial3d(core_mat.clone()),
                     Transform::default(),
                     // Start past the tip so it's idle until the soma first fires.
-                    DendriteWave { soma: node, mat: dwave_mat, t: 99.0, prev_intensity: 0.0 },
+                    DendriteWave { soma: node, mat: core_mat, t: 99.0, prev_intensity: 0.0 },
                     SceneItem,
                 ));
             }

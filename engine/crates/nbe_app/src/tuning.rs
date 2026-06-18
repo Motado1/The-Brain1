@@ -100,11 +100,22 @@ pub(crate) const JUNCTION_GLOW: f32 = 0.85;
 /// trunk roots into the membrane shell between connection bulges (not deep at the core, not floating).
 pub(crate) const DEND_EMBED: f32 = 0.8;
 /// Trunk *base* width as a fraction of the soma radius — wide where it fuses with the soma, then a
-/// concave taper (DEND_ROOT_TAPER_POW) necks it down fast so only the fillet at the base is fat.
-pub(crate) const DEND_ROOT_R: f32 = 0.24;
+/// concave taper (DEND_ROOT_TAPER_POW) necks it down. Thickened so the trunks are clearly volumetric
+/// tubes (the membrane flowing out), not thin wires.
+pub(crate) const DEND_ROOT_R: f32 = 0.34;
 /// Concavity of the trunk's base→tip taper (>1 = stays thin along its length but flares sharply at
 /// the soma, the tree-branch fillet). 1.0 would be a plain cone.
 pub(crate) const DEND_ROOT_TAPER_POW: f32 = 2.6;
+/// Inner energy-core radius as a fraction of the membrane radius — the bright "wire inside the glass".
+pub(crate) const DEND_CORE_RATIO: f32 = 0.4;
+/// Resting glow of the inner core (rest.w in pulse_wave.wgsl) — a saturated wire visible through the
+/// translucent membrane even between pulses; the travelling surge brightens it further.
+pub(crate) const DEND_CORE_GLOW: f32 = 0.35;
+/// Surface-noise depth on the dendrite membrane, as a fraction of the local tube radius (the bumpy
+/// organic skin, continuous with the soma's SOMA_BUMP). Proportional so thin twigs aren't shredded.
+pub(crate) const DEND_BUMP_REL: f32 = 0.35;
+/// Spatial frequency of that membrane bump noise (smaller = larger, soma-like lumps).
+pub(crate) const DEND_BUMP_FREQ: f32 = 0.6;
 /// How many times a dendrite splits into finer children (recursion depth) — the fractal tree.
 pub(crate) const DEND_BRANCH_DEPTH: u32 = 3;
 /// Each branch ends at this fraction of its start width; its children continue from there, so the
