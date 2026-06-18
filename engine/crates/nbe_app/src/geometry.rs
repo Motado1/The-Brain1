@@ -40,7 +40,7 @@ pub(crate) fn fib_dir(i: usize, n: usize) -> Vec3 {
 /// the woven-mesh density — constant no matter how many nodes a network has, so a 35-node cluster
 /// and a 350-node cluster read identically (just different overall size).
 pub(crate) fn density_radii(n: usize) -> Vec3 {
-    (n.max(1) as f32).cbrt() * Vec3::new(32.6, 24.8, 32.6)
+    (n.max(1) as f32).cbrt() * Vec3::new(45.0, 34.0, 45.0)
 }
 
 /// Place a node inside its network's ellipsoid, biased toward its kind's shell radius.
@@ -123,8 +123,20 @@ pub(crate) struct TubeBuilder {
 }
 
 impl TubeBuilder {
-    /// Sweep a tube along `points` with a per-point `radii` profile (lets tubes taper / bulge).
+    /// Sweep a tube along `points` with a per-point `radii` profile (lets tubes taper / bulge). The
+    /// length coordinate `uv.x` runs 0→1 evenly along the polyline.
     pub(crate) fn add(&mut self, points: &[Vec3], radii: &[f32], sides: usize) {
+        let rings = points.len();
+        let u: Vec<f32> = (0..rings)
+            .map(|ri| ri as f32 / (rings - 1).max(1) as f32)
+            .collect();
+        self.add_with_u(points, radii, sides, &u);
+    }
+
+    /// Like `add`, but takes an explicit per-ring length coordinate `u` (written to `uv.x`). Lets a
+    /// branching tree bake *distance-from-the-soma* into uv.x so one travelling wave sweeps the whole
+    /// tree root→tip in spatial order, instead of each branch restarting 0→1.
+    pub(crate) fn add_with_u(&mut self, points: &[Vec3], radii: &[f32], sides: usize, u: &[f32]) {
         if points.len() < 2 {
             return;
         }
@@ -154,7 +166,7 @@ impl TubeBuilder {
                 self.positions.push((p + dir * r).to_array());
                 self.normals.push(dir.to_array());
                 self.uvs
-                    .push([ri as f32 / (rings - 1) as f32, s as f32 / sides as f32]);
+                    .push([u[ri.min(u.len() - 1)], s as f32 / sides as f32]);
             }
         }
         for ri in 0..rings - 1 {
@@ -166,6 +178,17 @@ impl TubeBuilder {
                 let d = base + ((ri + 1) * sides + s2) as u32;
                 self.indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
+        }
+    }
+
+    /// Rescale every `uv.x` by `max_u` so absolute root→tip distances become a normalised 0→1 length
+    /// coordinate across the whole tree.
+    pub(crate) fn normalize_u(&mut self, max_u: f32) {
+        if max_u <= 0.0 {
+            return;
+        }
+        for uv in &mut self.uvs {
+            uv[0] /= max_u;
         }
     }
 
@@ -253,6 +276,9 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
     let mut s = seed | 1;
     let mut builder = TubeBuilder::default();
     let mut branches: Vec<DendriteBranch> = Vec::new();
+    // Track the farthest reach (absolute arc-length from the soma) so uv.x can be normalised 0→1
+    // across the whole tree afterwards — one wave then sweeps root→tip in spatial order.
+    let mut max_u = 0.0f32;
     for _ in 0..count {
         let mut dir =
             Vec3::new(lcg(&mut s) - 0.5, lcg(&mut s) - 0.5, lcg(&mut s) - 0.5).normalize_or_zero();
@@ -262,8 +288,9 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
         // The trunk begins just inside the soma surface (along its outgoing direction) so its wide
         // root fuses with the cell body, then tapers and branches out into a fractal tree.
         let start = node + dir * node_r * crate::tuning::DEND_EMBED;
-        grow_dendrite(&mut builder, &mut branches, &mut s, start, dir, node_r * crate::tuning::DEND_ROOT_R, node_r, 0);
+        grow_dendrite(&mut builder, &mut branches, &mut s, start, dir, node_r * crate::tuning::DEND_ROOT_R, node_r, 0, 0.0, &mut max_u);
     }
+    builder.normalize_u(max_u);
     DendriteTree { mesh: builder.build(), branches }
 }
 
@@ -281,6 +308,8 @@ fn grow_dendrite(
     r0: f32,
     node_r: f32,
     depth: u32,
+    start_dist: f32,
+    max_u: &mut f32,
 ) {
     let leaf = depth >= crate::tuning::DEND_BRANCH_DEPTH;
     let r1 = if leaf { 0.012 } else { r0 * crate::tuning::DEND_BRANCH_TAPER };
@@ -308,9 +337,16 @@ fn grow_dendrite(
             (r1 + (r0 - r1) * (1.0 - t).powf(pow)).max(0.01)
         })
         .collect();
+    // Distance from the soma at each ring: this branch's start distance plus its own arc-length, so
+    // uv.x grows continuously outward (children continue from their parent's tip).
+    let mut dist = vec![start_dist; n];
+    for i in 1..n {
+        dist[i] = dist[i - 1] + pts[i].distance(pts[i - 1]);
+    }
+    *max_u = max_u.max(dist[n - 1]);
     // 8-sided so the tube is a smooth round cross-section (a glassy rod with a clear centre and a
     // rim outline), not a faceted prism that reads as flat under the Fresnel membrane shader.
-    builder.add(&pts, &radii, 8);
+    builder.add_with_u(&pts, &radii, 8, &dist);
     branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
@@ -320,7 +356,7 @@ fn grow_dendrite(
             if cdir.length_squared() < 1e-6 {
                 cdir = dir;
             }
-            grow_dendrite(builder, branches, s, p, cdir, r1, node_r, depth + 1);
+            grow_dendrite(builder, branches, s, p, cdir, r1, node_r, depth + 1, dist[n - 1], max_u);
         }
     }
 }
@@ -415,6 +451,33 @@ mod tests {
         }
         // Same seed → identical geometry (stable across reloads).
         assert_eq!(n, vertex_count(&dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD).mesh));
+    }
+
+    #[test]
+    fn dendrite_uv_runs_root_to_tip() {
+        // uv.x must encode normalised distance-from-the-soma across the whole tree: ~0 at the roots,
+        // reaching ~1 at the farthest tip — so a single travelling wave sweeps the tree in order
+        // (not each branch restarting at 0). Verticies near the soma centre have the smallest u.
+        let node = Vec3::ZERO;
+        let tree = dendrite_tree(node, 5, 1.0, 0x51CE);
+        let (Some(VertexAttributeValues::Float32x3(pos)), Some(VertexAttributeValues::Float32x2(uv))) = (
+            tree.mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+            tree.mesh.attribute(Mesh::ATTRIBUTE_UV_0),
+        ) else {
+            panic!("expected position + uv attributes");
+        };
+        let umin = uv.iter().map(|u| u[0]).fold(f32::INFINITY, f32::min);
+        let umax = uv.iter().map(|u| u[0]).fold(f32::NEG_INFINITY, f32::max);
+        assert!(umin >= 0.0, "u never negative, got {umin}");
+        assert!(umin < 0.1, "roots start near u=0, got {umin}");
+        assert!((umax - 1.0).abs() < 1e-3, "farthest tip normalises to u≈1, got {umax}");
+        // The vertex with the smallest u is close to the soma; the largest is far from it.
+        let near = pos[uv.iter().enumerate().min_by(|a, b| a.1[0].total_cmp(&b.1[0])).unwrap().0];
+        let far = pos[uv.iter().enumerate().max_by(|a, b| a.1[0].total_cmp(&b.1[0])).unwrap().0];
+        assert!(
+            Vec3::from_array(near).distance(node) < Vec3::from_array(far).distance(node),
+            "small-u vertex sits nearer the soma than the large-u vertex"
+        );
     }
 
     #[test]

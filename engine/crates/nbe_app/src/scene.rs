@@ -410,9 +410,9 @@ fn build_scene(
     let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
     // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader).
     let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
-    // Dendrites wear the *same* Fresnel shader (so they read as the same translucent membrane as the
-    // soma), tuned a touch softer for thin geometry — see DEND_RIM_* in tuning.rs.
-    let mut dendrite_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
+    // Dendrites wear the unified glassy wave material (a per-soma instance is built at spawn time so
+    // each tree can carry its own firing surge) — see the node loop. The soma keeps its own
+    // Fresnel cell-wall material here.
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
         soma_of.insert(
@@ -420,13 +420,6 @@ fn build_scene(
             somas.add(SomaMaterial {
                 rim_color: LinearRgba::new(r, g, b, 1.0),
                 params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
-            }),
-        );
-        dendrite_of.insert(
-            net,
-            somas.add(SomaMaterial {
-                rim_color: LinearRgba::new(r, g, b, 1.0),
-                params: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, 0.0),
             }),
         );
         // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
@@ -605,10 +598,18 @@ fn build_scene(
                 if let Some(an) = anatomy.get(id) {
                     embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
                 }
+                let (dr, dg, db) = theme_rgb(network);
+                let dwave_mat = waves.add(PulseWaveMaterial {
+                    color: LinearRgba::new(dr, dg, db, 1.0),
+                    rest: Vec4::new(DEND_RIM_POWER, DEND_RIM_INTENSITY, DEND_RIM_ALPHA, 0.0),
+                    wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
+                });
                 commands.spawn((
                     Mesh3d(meshes.add(tree.mesh)),
-                    MeshMaterial3d(dendrite_of[&network].clone()),
+                    MeshMaterial3d(dwave_mat.clone()),
                     Transform::default(),
+                    // Start past the tip so it's idle until the soma first fires.
+                    DendriteWave { soma: node, mat: dwave_mat, t: 99.0, prev_intensity: 0.0 },
                     SceneItem,
                 ));
             }

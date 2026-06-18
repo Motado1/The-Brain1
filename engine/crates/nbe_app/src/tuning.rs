@@ -23,6 +23,12 @@ pub(crate) const PULSE_WAVE_AMP: f32 = 2.6;
 /// Rest a connection takes after absorbing a pulse before it may carry the next one (seconds). The
 /// pause between a signal arriving and the reply heading back.
 pub(crate) const CHANNEL_COOLDOWN: f32 = 2.0;
+/// Dendrite surge speed: when a soma fires, the crest travels out through its tree at this rate
+/// (uv/sec, uv normalised root→tip). Fast — the tree is short, so the surge feels snappy.
+pub(crate) const DEND_WAVE_SPEED: f32 = 1.2;
+/// Emissive amplitude of the dendrite surge crest. Kept below PULSE_WAVE_AMP so the hair-thin twigs
+/// don't blow out into bloom.
+pub(crate) const DEND_WAVE_AMP: f32 = 1.8;
 /// Max pulses one fire emits (caps hub blow-ups; kept low so the scene stays calm).
 pub(crate) const MAX_PULSES_PER_FIRE: usize = 3;
 /// Per-network dust mote count — dense, like the bokeh-filled reference images.
@@ -64,8 +70,9 @@ pub(crate) const SOMA_VARIANTS: usize = 6;
 /// (Target 2 — "tree root gripping the soil"). Was 0.16 when the filament merely kissed the surface.
 pub(crate) const ROOT_FLARE: f32 = 0.42;
 /// How far inside the soma surface a filament starts, as a fraction of radius, so its flare embeds
-/// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface.
-pub(crate) const ROOT_EMBED: f32 = 0.82;
+/// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface; lower = deeper
+/// inside (no surface gap). Dropped from 0.82 so connectors fully fuse into the cell body.
+pub(crate) const ROOT_EMBED: f32 = 0.7;
 /// Billboard scale of the additive glow dot placed at each filament→soma junction (Target 3 —
 /// light compounds where roots meet the surface). Slightly larger than the mid-filament beads.
 pub(crate) const JUNCTION_GLOW: f32 = 0.85;

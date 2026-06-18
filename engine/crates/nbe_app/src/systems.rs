@@ -326,6 +326,35 @@ pub(crate) fn fire_scheduler(
     }
 }
 
+/// Drive each dendrite tree's surge: when its soma fires (a rising edge in `Firing.intensity`) the
+/// wave restarts at the root and travels out past the tips, then idles. Only active trees are
+/// touched, so idle dendrite materials aren't re-uploaded.
+pub(crate) fn drive_dendrite_waves(
+    time: Res<Time>,
+    firings: Query<&Firing>,
+    mut dends: Query<&mut DendriteWave>,
+    mut mats: ResMut<Assets<PulseWaveMaterial>>,
+) {
+    let dt = time.delta_secs();
+    // Let the crest fully clear the farthest tip (u=1) plus a few sigma before going idle.
+    let end = 1.0 + PULSE_WIDTH * 3.0;
+    for mut dw in &mut dends {
+        let intensity = firings.get(dw.soma).map(|f| f.intensity).unwrap_or(0.0);
+        // Rising edge → the soma just fired → (re)start the surge from the root.
+        if intensity - dw.prev_intensity > 0.3 {
+            dw.t = 0.0;
+        }
+        dw.prev_intensity = intensity;
+        if dw.t <= end {
+            dw.t += DEND_WAVE_SPEED * dt;
+            let amp = if dw.t <= end { DEND_WAVE_AMP } else { 0.0 };
+            if let Some(m) = mats.get_mut(&dw.mat) {
+                m.wave = Vec4::new(dw.t, amp, PULSE_WIDTH, 0.0);
+            }
+        }
+    }
+}
+
 /// Render firing: flare the neuron's emissive + swell its halo, plus a constant gentle twinkle.
 /// The hovered/selected neuron gets an extra steady boost so you can see what you're pointing at.
 pub(crate) fn fire_render(

@@ -132,6 +132,17 @@ pub(crate) struct ConnectionWave {
 #[derive(Resource, Default)]
 pub(crate) struct WaveActive(pub(crate) std::collections::HashSet<usize>);
 
+/// A soma's dendrite tree, driven so a firing neuron's light surges outward through its branches.
+/// `t` is the wave centre (uv along the tree, 0 = root); it restarts at 0 when the `soma` fires and
+/// advances out past the tips, then idles. `prev_intensity` detects that firing rising edge.
+#[derive(Component)]
+pub(crate) struct DendriteWave {
+    pub(crate) soma: Entity,
+    pub(crate) mat: Handle<crate::shaders::PulseWaveMaterial>,
+    pub(crate) t: f32,
+    pub(crate) prev_intensity: f32,
+}
+
 /// A data-anatomy element (session bead, package/research twig) that only materialises at close
 /// range: its rendered scale ramps `0 → base_scale` as the global LOD zoom-detail crosses
 /// `[start, full]` (cubic-smoothed), so the finest data nodes fade in on deep zoom instead of

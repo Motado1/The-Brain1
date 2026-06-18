@@ -9,10 +9,16 @@ Replaced the discrete dot pulse with a continuous Gaussian wave gliding along th
 - [x] **Absorb → pause → reply rhythm** — `CHANNEL_COOLDOWN`=2s, no ping-pong (owner-requested).
 - [ ] **⚠ Shader validates at RUNTIME (naga), not at build.** If connection tubes render
       pink/black/invisible, it's a WGSL error — send the console `naga`/shader error.
-- [ ] **OPEN: connections + dendrites "look off"** (the tube look, not the wave). Decide whether it's
-      **colour** (too pale/beige), **thickness** (too fat vs delicate filaments), or **opacity** (too
-      opaque vs translucent glass). Feeds **Slice 2** (unify dendrites onto `PulseWaveMaterial` + light
-      them on fire) and **Slice 3** (radius "pump" via vertex displacement — owner already said yes).
+- [ ] **Slice 2 — dendrite surge.** When a soma fires, light should travel root→tip out through its
+      dendrite tree (one smooth wave sweeping the whole tree in spatial order, not every branch
+      flashing at once). Knobs: `DEND_WAVE_SPEED` (travel rate), `DEND_WAVE_AMP` (crest brightness)
+      in `tuning.rs`. Same `pulse_wave.wgsl` (already validated) — low shader risk; the unknown is the
+      uv-by-distance look + trigger timing.
+- [ ] **Soma spacing + connector fusion.** Clusters should be more spread out (less clutter) and
+      connections should root *into* the cell bodies (no fat tube stabbing straight through a soma,
+      no surface gap). Knobs: `density_radii` in `geometry.rs` (raise the 45/34 vector for more
+      spread); `ROOT_EMBED` in `tuning.rs` (lower = deeper fuse). This was the owner's "looks off".
+- [ ] **NEXT Slice 3** (not built): radius "pump" via vertex displacement — owner already said yes.
 
 ## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)
 Goal (from the owner's reference images + Gemini's "anatomy of the real node"): somas read as a

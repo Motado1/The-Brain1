@@ -27,16 +27,25 @@ billboard "dot" pulse is gone; energy now travels as a glowing wave along the co
 - **Cleanup:** removed `PulseAssets`, the dot billboard, and the now-dead `GraphNode.network` /
   `GraphEdge.path` fields. Connections now wear the unified glassy material (same family as dendrites).
 
-**OPEN — owner feedback still to action:** owner says the **connections & dendrites still "look
-off"** (the tube look itself, separate from the wave). Need one word on whether "off" = **color**
-(too pale/beige), **thickness** (too fat vs delicate filaments), or **opacity** (too opaque vs
-translucent glass) so Slice 2 targets it precisely. The wave + pulse rhythm are GOOD per the owner.
+**Slice 2 — dendrite surge — BUILT (awaiting GPU eyes).** Dendrite trees now wear a per-soma
+`PulseWaveMaterial` (replaced the old `dendrite_of` SomaMaterial). When a soma fires, its light surges
+root→tip through the tree: `drive_dendrite_waves` (systems.rs) detects the firing rising edge
+(`Firing.intensity` jump via `DendriteWave.prev_intensity`), restarts `t=0`, advances at
+`DEND_WAVE_SPEED`(1.2) out past the tips, then idles (touches only active trees). Crux fix:
+`uv.x` now encodes **normalised distance-from-soma across the whole tree** (not per-branch 0→1) —
+`TubeBuilder::add_with_u` + `normalize_u`, `grow_dendrite` tracks cumulative arc-length, normalised by
+max reach in `dendrite_tree`. Test `dendrite_uv_runs_root_to_tip` guards it. Tunables `DEND_WAVE_AMP`(1.8).
 
-**NEXT — Slice 2:** extend the wave onto the **dendrite trees** so a firing neuron's light surges
-outward through its branches (unify dendrites onto `PulseWaveMaterial`, trigger a wave on fire).
-**Slice 3:** radius "pump" — vertex displacement so the tube visibly swells as the crest passes
-(owner already said yes to this). Build as separate verifiable slices; don't stack the vertex-shader
-risk on top of Slice 2 until Slice 2 validates.
+**Soma-spacing + root-embed fix — DONE (addresses the "looks off" feedback).** Connections only do the
+embed-inside-and-flare attachment when `distance > ri+rj+1.0`; close somas fell back to center-to-center
+so the fat tube stabbed through both glowing balls. Fix: spread clusters out (`density_radii` 32.6/24.8 →
+45/34) so more pairs take the proper path, and deepen the embed (`ROOT_EMBED` 0.82 → 0.7) so connectors
+fuse with no surface gap. Knobs: raise `density_radii` (geometry.rs) for more spread; lower `ROOT_EMBED`
+for deeper fuse.
+
+**NEXT — Slice 3:** radius "pump" — vertex displacement so the tube visibly swells as the crest passes
+(owner pre-approved). Highest naga-risk piece (custom vertex shader); keep it separate, build only after
+Slice 2 validates on the GPU.
 
 
 **Cosmic-scaling workspace (4-system arch, in progress).** Goal: abandon orbit/satellite placement;

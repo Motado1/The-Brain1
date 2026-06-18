@@ -135,6 +135,7 @@ fn main() {
                 advance_pulses,
                 tick_channels,
                 drive_pulse_waves,
+                drive_dendrite_waves,
                 drift_motes,
                 apply_reload,
             ),
