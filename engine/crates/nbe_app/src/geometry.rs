@@ -209,19 +209,24 @@ pub(crate) fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
     b.build()
 }
 
-/// Connection profile: fat at both endpoints (where it meets the somas), pinched in the middle —
-/// the organic dendrite-junction look rather than an even pipe.
-/// Axon profile: flares thick where it meets each soma (so the connection looks like it grows out
-/// of the cell body), pinching to a thin waist along its length. Ends may differ (each soma's size).
-pub(crate) fn axon_radii(n: usize, r_start: f32, r_end: f32, waist: f32) -> Vec<f32> {
-    (0..n)
+/// Connector profile: one continuous **branch flowing out of a trunk** rather than a pipe pinched to
+/// a thread in the middle. It's full where it roots into the *thicker* soma (the trunk) and tapers
+/// smoothly toward the other end — concave, so it stays substantial along its length (no thin waist).
+/// `r0`/`r1` are the rooted radii at each end; the bigger one becomes the trunk base.
+pub(crate) fn branch_radii(n: usize, r0: f32, r1: f32, tip_ratio: f32) -> Vec<f32> {
+    let base = r0.max(r1);
+    let tip = (base * tip_ratio).min(r0.min(r1)); // taper toward the thinner end, but never below it
+    let mut radii: Vec<f32> = (0..n)
         .map(|i| {
-            let t = i as f32 / (n - 1).max(1) as f32;
-            let end_r = if t < 0.5 { r_start } else { r_end };
-            let k = (2.0 * t - 1.0).abs().powf(1.6); // ~1 at the ends, ~0 mid — flare hugs the soma
-            waist + (end_r - waist) * k
+            let t = i as f32 / (n - 1).max(1) as f32; // 0 = base end, 1 = tip end
+            (tip + (base - tip) * (1.0 - t).powf(1.3)).max(0.06)
         })
-        .collect()
+        .collect();
+    // Orient the thick base at whichever soma is larger (radii is built base→tip).
+    if r1 > r0 {
+        radii.reverse();
+    }
+    radii
 }
 
 /// A dim, hair-thin tangle of background micro-fibers filling a network's volume — non-interactive

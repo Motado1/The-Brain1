@@ -398,7 +398,8 @@ fn build_scene(
     // Only the node cores carry the per-kind base colour. The membrane is see-through so the bright
     // core inside reads as light glowing from within, not the node being a bare light source.
     let theme_rgb = |net: Network| match net {
-        Network::Business => (1.0, 0.55, 0.15),
+        // Deeper, hotter red-orange (was a pale amber 1.0,0.55,0.15) — the molten neuron look.
+        Network::Business => (1.0, 0.30, 0.07),
         Network::Research => (0.5, 0.42, 1.0),
     };
     type ThemeMats = (
@@ -688,7 +689,7 @@ fn build_scene(
                 let seed = (key.0 as u64).wrapping_shl(20) ^ key.1 as u64 ^ idxs[i] as u64;
                 let curve = edge_curve(a, b, 0.7, &curve_params, seed);
                 // Thin waist, flaring wide where it grips each soma.
-                let radii = axon_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, 0.12);
+                let radii = branch_radii(curve.len(), ri * ROOT_FLARE, rj * ROOT_FLARE, BRANCH_TIP_RATIO);
                 // Unified glassy tube material (same Fresnel as the dendrites) that also carries the
                 // travelling pulse wave. `fwd_edge` = the i→j directed edge wire() is about to push,
                 // so the wave system can orient a pulse's `t` to this tube's uv.x.

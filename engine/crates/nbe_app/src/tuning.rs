@@ -68,10 +68,13 @@ pub(crate) const SOMA_BUMP: f32 = 0.28;
 /// Number of distinct displaced soma meshes in the shared pool (picked per-node by hash) so the
 /// cells vary without a unique mesh per neuron.
 pub(crate) const SOMA_VARIANTS: usize = 6;
-/// Root flare: each connector end widens to this fraction of the soma radius where it meets the body.
-/// Kept small so connectors read as thin tapering tendrils with only a modest base flare (reference
-/// look), not the fat double-ended trumpets that ballooned at 0.42.
-pub(crate) const ROOT_FLARE: f32 = 0.15;
+/// Root flare: a connector's thick (trunk) end widens to this fraction of the soma radius where it
+/// roots into the body — a branch flowing out of the cell, tapering toward the far end.
+pub(crate) const ROOT_FLARE: f32 = 0.16;
+/// How thin a connector tapers at its far (branch-tip) end, as a fraction of its rooted base — so it
+/// reads as one continuous branch that stays substantial along its length, not a pipe pinched to a
+/// thread in the middle. 1.0 = no taper (even tube); lower = more branch-like taper.
+pub(crate) const BRANCH_TIP_RATIO: f32 = 0.6;
 /// How far inside the soma surface a filament starts, as a fraction of radius, so its flare embeds
 /// into the body (fuses) instead of floating against it. 1.0 = exactly on the surface; lower = deeper
 /// inside (no surface gap). Dropped from 0.82 so connectors fully fuse into the cell body.

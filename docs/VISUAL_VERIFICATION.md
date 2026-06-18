@@ -29,6 +29,15 @@ Replaced the discrete dot pulse with a continuous Gaussian wave gliding along th
       want richer warm colour → the theme is desaturated, deepen it in `theme_rgb` (scene.rs ~400).
       *Deeper granular surface (smoky micro-crevice light-scatter) needs the planned soma.wgsl noise
       (runtime-WGSL, not built).*
+- [ ] **Connectors = branches off a trunk (not pinched pipes) + deeper red.** Replaced the symmetric
+      flare-waist-flare profile (`axon_radii`) with `branch_radii`: a monotonic concave taper, full
+      where it roots into the *bigger* soma (trunk), easing toward the other end — stays substantial
+      through the middle (kills the thread-thin waist the owner flagged). Knobs: `ROOT_FLARE`=0.16
+      (rooted base size), `BRANCH_TIP_RATIO`=0.6 (how thin the far end gets; raise→more even, lower→
+      more taper) in `tuning.rs`. Red deepened: `theme_rgb` Business 1.0,0.55,0.15 → 1.0,0.30,0.07.
+      *Still wanted (owner): connectors+somas reading more as one continuous trunk→branch system —
+      next lever is curve flow (`curve_params` bow 0.1/sag 0.03 in scene.rs ~636) and/or fusing the
+      connector base into the soma surface more seamlessly.*
 - [ ] **NEXT Slice 3** (not built): radius "pump" via vertex displacement — owner already said yes.
 
 ## ⏳⏳⏳ NEWEST — granular-soma Phase 1 (geometry; no shader, low risk)
