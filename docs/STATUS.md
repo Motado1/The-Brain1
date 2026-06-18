@@ -4,10 +4,26 @@
 > **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
 > removed). Commit & push straight to `main`.
 
-## 🚨 BRANCH FORK — READ BEFORE BUILDING (2026-06-18)
+## 🚨 BRANCH FORK — CONSOLIDATION IN PROGRESS (2026-06-18)
 
-There are **two active chats on two diverged branches** building overlapping features. Resolve this
-before adding more, or the fork worsens.
+**UPDATE — owner A/B-picked and `main` is now the consolidated winner.** After booting both versions
+the owner chose, per feature: **1A 2A 3A 5A 8A** (keep main's visuals/dendrite/motes) + **4B** (pulse
+eases into node) + **6B** (UI: omni-search/glide/glass) + **dendrites also attach to membrane**;
+**7 (LOD) deferred** (owner couldn't tell it worked). All picks are now **landed on `main`**:
+- `89cacb4` dendrites attach to membrane shell (DEND_EMBED 0.9).
+- `30699aa` ported the UI (nav CameraGlide + omni-search + glass theme + search.rs + glide in
+  orbit_camera) WITHOUT the other branch's pulse/dendrite/LOD rewrites.
+- `f0a7da8` ported B's pulse ease-into-node (`Pulse.arrived/fade`, `PULSE_FADE_TIME`) on top of main's
+  Gaussian wave + cooldown (both kept).
+- **Remaining: port the LOD (mesh tiers + `MinScreenSize` floor) and make it verifiable** — it's fused
+  into B's `dendrite_tree`, so redo it against main's uv-by-distance dendrites. Then **retire the other
+  branch** (`git reset --hard origin/main` on `session-frontier-continue-jap19w`) to kill the fork.
+- Dead branches (0 unique commits, deletable): `claude/claude-md-continuation-v10vu2`,
+  `claude/neural-business-engine-arch-h7i8xj`.
+
+<details><summary>original fork analysis (kept for reference)</summary>
+
+There were **two active chats on two diverged branches** building overlapping features.
 - **`main`** (canonical per CLAUDE.md) = this chat. Has the owner-**verified** organic visuals + pulse
   rhythm: Gaussian pulse wave + channel cooldown, dendrite surge (uv-by-distance), `branch_radii`
   trunk→branch taper, membrane-attach (`ROOT_EMBED` 0.92, core 0.9), deeper red, soma look passes.
@@ -33,6 +49,7 @@ before adding more, or the fork worsens.
 4. Each ported feature = a verifiable slice, compile + test green, owner verifies on the GPU.
 - **Dead branches** (0 unique commits, safe to delete anytime): `claude/claude-md-continuation-v10vu2`,
   `claude/neural-business-engine-arch-h7i8xj`.
+</details>
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
 
