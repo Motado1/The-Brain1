@@ -237,9 +237,23 @@ fn spawn_pulse(commands: &mut Commands, graph: &BrainGraph, edge_idx: usize, see
     let mut s = seed | 1;
     let speed = PULSE_SPEED * (0.85 + lcg(&mut s) * 0.3);
     commands.spawn((
-        Pulse { edge: edge_idx, t: 0.0, speed, target: edge.target, energy: PULSE_ENERGY },
+        Pulse {
+            edge: edge_idx,
+            t: 0.0,
+            speed,
+            target: edge.target,
+            energy: PULSE_ENERGY,
+            arrived: false,
+            fade: 0.0,
+        },
         SceneItem,
     ));
+}
+
+/// Cubic smoothstep on a clamped 0..1 input — eases the pulse's arrival fade.
+fn smoothstep(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
 }
 
 /// Count down each connection's rest period; once a channel has rested and is free, release the next
@@ -281,8 +295,8 @@ pub(crate) fn drive_pulse_waves(
     mut active: ResMut<WaveActive>,
 ) {
     let by_channel: HashMap<usize, &ConnectionWave> = conns.iter().map(|c| (c.channel, c)).collect();
-    // Channel → wave centre this frame (oriented to the tube's uv via the forward edge).
-    let mut now: HashMap<usize, f32> = HashMap::new();
+    // Channel → (wave centre, amplitude) this frame (centre oriented to the tube's uv via fwd edge).
+    let mut now: HashMap<usize, (f32, f32)> = HashMap::new();
     for p in &pulses {
         let Some(edge) = graph.edges.get(p.edge) else {
             continue;
@@ -292,12 +306,14 @@ pub(crate) fn drive_pulse_waves(
         };
         let tt = p.t.clamp(0.0, 1.0);
         let t_center = if p.edge == cw.fwd_edge { tt } else { 1.0 - tt };
-        now.insert(edge.channel, t_center);
+        // Once it has arrived the crest sits on the node end and its glow eases out (no hard cutoff).
+        let amp = PULSE_WAVE_AMP * if p.arrived { 1.0 - smoothstep(p.fade) } else { 1.0 };
+        now.insert(edge.channel, (t_center, amp));
     }
-    for (&ch, &t_center) in &now {
+    for (&ch, &(t_center, amp)) in &now {
         if let Some(cw) = by_channel.get(&ch) {
             if let Some(m) = mats.get_mut(&cw.mat) {
-                m.wave = Vec4::new(t_center, PULSE_WAVE_AMP, PULSE_WIDTH, 0.0);
+                m.wave = Vec4::new(t_center, amp, PULSE_WIDTH, 0.0);
             }
         }
     }
@@ -436,21 +452,31 @@ pub(crate) fn advance_pulses(
             commands.entity(ent).despawn();
             continue;
         };
+        if pulse.arrived {
+            // Crest has reached the node — ease its glow out (drive_pulse_waves), then despawn.
+            pulse.fade += dt / PULSE_FADE_TIME;
+            if pulse.fade >= 1.0 {
+                commands.entity(ent).despawn();
+            }
+            continue;
+        }
         pulse.t += pulse.speed * dt;
         if pulse.t >= 1.0 {
-            // Fully absorbed by the receiving node.
+            pulse.t = 1.0;
+            pulse.arrived = true;
+            // Deposit the energy into the receiving node (done once, on contact).
             if let Some(node) = graph.nodes.get(pulse.target) {
                 if let Ok(mut f) = fire.get_mut(node.entity) {
                     f.accumulator += pulse.energy;
                 }
             }
-            // Rest the connection: it stays quiet for CHANNEL_COOLDOWN before any queued (reverse)
-            // pulse is released — see tick_channels — so signals don't ping-pong.
+            // Rest the connection for CHANNEL_COOLDOWN before any queued (reverse) pulse is released
+            // (see tick_channels) — no ping-pong. The fade-out runs inside this rest window, so the
+            // connection isn't reclaimed mid-fade (PULSE_FADE_TIME < CHANNEL_COOLDOWN).
             if let Some(ch) = traffic.channels.get_mut(edge.channel) {
                 ch.busy = false;
                 ch.cooldown = CHANNEL_COOLDOWN;
             }
-            commands.entity(ent).despawn();
         }
     }
 }

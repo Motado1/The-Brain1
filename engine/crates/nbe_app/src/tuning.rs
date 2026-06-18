@@ -23,6 +23,10 @@ pub(crate) const PULSE_WAVE_AMP: f32 = 2.6;
 /// Rest a connection takes after absorbing a pulse before it may carry the next one (seconds). The
 /// pause between a signal arriving and the reply heading back.
 pub(crate) const CHANNEL_COOLDOWN: f32 = 2.0;
+/// After a connection pulse reaches the target node, the crest stops advancing and its glow eases
+/// out over this many seconds (smoothstep) — so the light flows *into* the node instead of snapping
+/// off. Kept well under `CHANNEL_COOLDOWN` so the connection is still resting while it fades.
+pub(crate) const PULSE_FADE_TIME: f32 = 0.5;
 /// Dendrite surge speed: when a soma fires, the crest travels out through its tree at this rate
 /// (uv/sec, uv normalised root→tip). Fast — the tree is short, so the surge feels snappy.
 pub(crate) const DEND_WAVE_SPEED: f32 = 1.2;

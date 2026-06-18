@@ -47,6 +47,11 @@ pub(crate) struct Pulse {
     pub(crate) speed: f32,
     pub(crate) target: usize,
     pub(crate) energy: f32,
+    /// Set once the crest reaches the target node — energy is deposited and the channel rests, but
+    /// the pulse lingers (no longer advancing) while `fade` ramps its glow down, so the light eases
+    /// *into* the node instead of snapping off. Despawns when `fade` completes.
+    pub(crate) arrived: bool,
+    pub(crate) fade: f32,
 }
 
 /// A drifting dust mote, for ambient depth (the bokeh specks in the references).
