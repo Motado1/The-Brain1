@@ -18,9 +18,6 @@ pub(crate) const PULSE_ENERGY: f32 = 0.16;
 pub(crate) const PULSE_SPEED: f32 = 0.3;
 /// Gaussian half-width (sigma) of the wave as a fraction of the path — a small, tight crest.
 pub(crate) const PULSE_WIDTH: f32 = 0.07;
-/// Emissive amplitude at the wave crest (HDR, so the crest blooms *outside* the thin glass tube as
-/// the pulse passes — the light reads as travelling through the tube, not filling it).
-pub(crate) const PULSE_WAVE_AMP: f32 = 3.6;
 /// Rest a connection takes after absorbing a pulse before it may carry the next one (seconds). The
 /// pause between a signal arriving and the reply heading back.
 pub(crate) const CHANNEL_COOLDOWN: f32 = 2.0;
@@ -31,9 +28,6 @@ pub(crate) const PULSE_FADE_TIME: f32 = 0.5;
 /// Dendrite surge speed: when a soma fires, the crest travels out through its tree at this rate
 /// (uv/sec, uv normalised root→tip). Fast — the tree is short, so the surge feels snappy.
 pub(crate) const DEND_WAVE_SPEED: f32 = 1.2;
-/// Emissive amplitude of the dendrite surge crest. Kept below PULSE_WAVE_AMP so the hair-thin twigs
-/// don't blow out into bloom.
-pub(crate) const DEND_WAVE_AMP: f32 = 1.8;
 /// Max pulses one fire emits (caps hub blow-ups; kept low so the scene stays calm).
 pub(crate) const MAX_PULSES_PER_FIRE: usize = 3;
 /// Per-network dust mote count — dense, like the bokeh-filled reference images.
@@ -51,17 +45,19 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 /// *through* the cell body (the reference look) instead of a flat opaque shell.
 pub(crate) const RIM_ALPHA: f32 = 0.68;
 
-// Connectors + dendrites use the same Fresnel "cell-wall" shader as the soma, but a thin tube needs
-// a *sharp* rim to read as clear glass with a crisp light outline (the soma's soft rim, which looks
-// clear on a big sphere, just fills a narrow tube to a flat colour). High power → only a crisp edge
-// lights; the body stays see-through glass. The pulse light comes from the travelling wave crest
-// blooming outside the tube (pulse_wave.wgsl), not from filling the body.
-/// Rim sharpness for tubes — high, so only a crisp glass outline lights and the body stays clear.
-pub(crate) const TUBE_RIM_POWER: f32 = 7.0;
-/// Rim glow brightness for the tube outline (HDR → the edge blooms).
-pub(crate) const TUBE_RIM_INTENSITY: f32 = 2.4;
-/// Rim opacity for tubes — the body is near-transparent glass, only the thin outline is solid.
-pub(crate) const TUBE_RIM_ALPHA: f32 = 0.5;
+// ---- volumetric tube material (hollow membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial) -
+// Connectors + dendrites share one color-agnostic material: at rest a hollow Fresnel-outlined
+// membrane (lit opaque rim, near-transparent see-through centre); a travelling pulse OVERRIDES the
+// hollow centre, forcing it opaque and flooding it with intense emissive — the tube fills with light.
+/// Fresnel falloff sharpness. Moderate (not razor-thin) so the rim is a visible glowing outline while
+/// the camera-facing centre still reads clearly hollow.
+pub(crate) const DEND_FRESNEL_POWER: f32 = 3.0;
+/// Resting rim glow multiplier on base_color at grazing angles (HDR → the outline blooms gently).
+pub(crate) const DEND_EDGE_EMISSIVE: f32 = 1.8;
+/// Resting alpha of the camera-facing centre — low, so the tube is a hollow, highly transparent vein.
+pub(crate) const DEND_CENTER_ALPHA: f32 = 0.07;
+/// Emissive multiplier applied where a pulse is active — massive (HDR) so the filled segment blooms.
+pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
 
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
 /// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
@@ -106,11 +102,6 @@ pub(crate) const DEND_ROOT_R: f32 = 0.34;
 /// Concavity of the trunk's base→tip taper (>1 = stays thin along its length but flares sharply at
 /// the soma, the tree-branch fillet). 1.0 would be a plain cone.
 pub(crate) const DEND_ROOT_TAPER_POW: f32 = 2.6;
-/// Inner energy-core radius as a fraction of the membrane radius — the bright "wire inside the glass".
-pub(crate) const DEND_CORE_RATIO: f32 = 0.4;
-/// Resting glow of the inner core (rest.w in pulse_wave.wgsl) — a saturated wire visible through the
-/// translucent membrane even between pulses; the travelling surge brightens it further.
-pub(crate) const DEND_CORE_GLOW: f32 = 0.35;
 /// Surface-noise depth on the dendrite membrane, as a fraction of the local tube radius (the bumpy
 /// organic skin, continuous with the soma's SOMA_BUMP). Proportional so thin twigs aren't shredded.
 pub(crate) const DEND_BUMP_REL: f32 = 0.35;

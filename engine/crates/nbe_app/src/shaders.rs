@@ -30,22 +30,23 @@ impl Material for SomaMaterial {
     }
 }
 
-/// Unified tube material: glassy Fresnel rest state + a travelling Gaussian energy wave (replaces
-/// the discrete dot pulses). Per-tube instance so each carries its own wave timeline uniform.
+/// Color-agnostic volumetric tube material (connectors + dendrites): a hollow Fresnel-outlined
+/// membrane at rest that the travelling pulse fills with light. Per-tube instance so each carries its
+/// own wave timeline uniform. See pulse_wave.wgsl.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
-pub(crate) struct PulseWaveMaterial {
-    /// rgb = tube colour (network hue), a unused.
+pub(crate) struct DendriteMaterial {
+    /// rgb = base colour (network hue: amber CRM / indigo Research), a unused.
     #[uniform(0)]
     pub(crate) color: LinearRgba,
-    /// x = rim power, y = rim intensity, z = rim alpha, w unused (the resting glassy outline).
+    /// x = fresnel power, y = edge emissive, z = centre alpha (hollow), w = pulse emissive (massive).
     #[uniform(1)]
     pub(crate) rest: Vec4,
-    /// x = wave centre t (0..1), y = amplitude (0 = idle), z = width (sigma), w unused.
+    /// x = wave centre t (0..1), y = amplitude (0 = idle, 1 = active), z = width (sigma), w unused.
     #[uniform(2)]
     pub(crate) wave: Vec4,
 }
 
-impl Material for PulseWaveMaterial {
+impl Material for DendriteMaterial {
     fn fragment_shader() -> ShaderRef {
         ShaderRef::Handle(PULSE_WAVE_SHADER)
     }
@@ -59,5 +60,5 @@ pub(crate) fn register(app: &mut App) {
     load_internal_asset!(app, SOMA_SHADER, "soma.wgsl", Shader::from_wgsl);
     load_internal_asset!(app, PULSE_WAVE_SHADER, "pulse_wave.wgsl", Shader::from_wgsl);
     app.add_plugins(MaterialPlugin::<SomaMaterial>::default());
-    app.add_plugins(MaterialPlugin::<PulseWaveMaterial>::default());
+    app.add_plugins(MaterialPlugin::<DendriteMaterial>::default());
 }

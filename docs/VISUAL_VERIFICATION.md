@@ -1,5 +1,23 @@
 # Pending visual / interaction verification
 
+## ⏳⏳⏳ NEWEST — `DendriteMaterial`: hollow membrane that fills with light on pulse
+Rework (owner spec): ONE color-agnostic volumetric tube material for connectors + dendrites. At rest
+a **hollow Fresnel-outlined membrane** (lit opaque rim, ~7% see-through centre — a clear "vein"); a
+travelling pulse **overrides** the hollow centre, forcing alpha→1.0 + a massive emissive flood so the
+tube **physically fills with light** where the pulse passes. The separate inner "wire" core mesh was
+removed (owner disliked it); dendrites are now a single bumpy volumetric tube like connectors.
+- [ ] **Tubes rest as clear hollow glass** with a lit outline (NOT a solid amber fill).
+- [ ] **Pulse fills the tube** with intense light as it travels (connectors: data pulse; dendrites:
+      firing surge root→tip).
+- [ ] **Color-agnostic**: CRM tubes amber, Research tubes indigo (automatic via `base_color`).
+- [ ] **⚠ runtime WGSL (naga on GPU)** — if tubes render pink/black, send the console error.
+- Knobs (`tuning.rs`): `DEND_FRESNEL_POWER`=3.0 (rim sharpness vs hollow centre), `DEND_EDGE_EMISSIVE`
+  =1.8 (rim glow), `DEND_CENTER_ALPHA`=0.07 (how see-through the centre is), `DEND_PULSE_EMISSIVE`=5.0
+  (pulse fill brightness — drop first if it blooms to white). Material renamed `PulseWaveMaterial`→
+  `DendriteMaterial`.
+- Known follow-ups if it reads wrong: soma still uses `SomaMaterial` (soft rim) so the soma↔dendrite
+  seam may differ — soften via `DEND_FRESNEL_POWER`/`DEND_EDGE_EMISSIVE` toward `RIM_POWER`/`RIM_INTENSITY`.
+
 ## ⏳⏳⏳ NEWEST — pulse WAVE (Slice 1) + channel cooldown — runtime WGSL
 Replaced the discrete dot pulse with a continuous Gaussian wave gliding along the connection tubes
 (`PulseWaveMaterial` / `pulse_wave.wgsl`), plus a per-channel rest so signals don't ping-pong.

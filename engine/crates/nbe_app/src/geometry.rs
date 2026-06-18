@@ -339,12 +339,9 @@ pub(crate) struct DendriteBranch {
 /// A dendrite tree: the merged tube `mesh` plus the `branches` it was built from (for embedding
 /// session beads along segments and package/research twigs at the tips).
 pub(crate) struct DendriteTree {
-    /// Outer cell-wall: a thick, bumpy, translucent volumetric tube wearing the SAME Fresnel
-    /// `SomaMaterial` as the soma — the membrane flowing continuously out into the roots.
-    pub(crate) membrane: Mesh,
-    /// Inner core: a thinner, smooth tube — the "wire inside the glass" that carries the bright
-    /// emissive energy pulse (`PulseWaveMaterial`), wrapped inside the translucent membrane.
-    pub(crate) core: Mesh,
+    /// The merged volumetric tube mesh — a single bumpy `DendriteMaterial` cell-wall whose membrane
+    /// fills with light where the firing surge passes (no separate inner wire).
+    pub(crate) mesh: Mesh,
     pub(crate) branches: Vec<DendriteBranch>,
 }
 
@@ -352,8 +349,7 @@ pub(crate) struct DendriteTree {
 /// and the branch polylines (so data anatomy can be embedded onto them — see `anatomy.rs`).
 pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) -> DendriteTree {
     let mut s = seed | 1;
-    let mut membrane = TubeBuilder::default(); // bumpy translucent outer cell-wall
-    let mut core = TubeBuilder::default(); // thin bright inner wire
+    let mut builder = TubeBuilder::default(); // the single bumpy volumetric tube
     let mut branches: Vec<DendriteBranch> = Vec::new();
     // Track the farthest reach (absolute arc-length from the soma) so uv.x can be normalised 0→1
     // across the whole tree afterwards — one wave then sweeps root→tip in spatial order.
@@ -368,8 +364,7 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
         // root fuses with the cell body, then tapers and branches out into a fractal tree.
         let start = node + dir * node_r * crate::tuning::DEND_EMBED;
         grow_dendrite(
-            &mut membrane,
-            &mut core,
+            &mut builder,
             &mut branches,
             &mut s,
             start,
@@ -382,9 +377,8 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
             seed as f32 * 0.618_034,
         );
     }
-    membrane.normalize_u(max_u);
-    core.normalize_u(max_u);
-    DendriteTree { membrane: membrane.build(), core: core.build(), branches }
+    builder.normalize_u(max_u);
+    DendriteTree { mesh: builder.build(), branches }
 }
 
 /// Recursively grow one tapering dendrite branch, then (until the depth budget runs out) split it
@@ -393,8 +387,7 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
 /// (thick trunk → hair-thin twigs). Each segment's polyline is recorded into `branches`.
 #[allow(clippy::too_many_arguments)]
 fn grow_dendrite(
-    membrane: &mut TubeBuilder,
-    core: &mut TubeBuilder,
+    builder: &mut TubeBuilder,
     branches: &mut Vec<DendriteBranch>,
     s: &mut u64,
     start: Vec3,
@@ -439,10 +432,10 @@ fn grow_dendrite(
         dist[i] = dist[i - 1] + pts[i].distance(pts[i - 1]);
     }
     *max_u = max_u.max(dist[n - 1]);
-    // Outer cell-wall: a thick volumetric tube whose surface is perturbed by the same organic noise
-    // as the soma (proportional to local radius, so thin twigs aren't shredded) — the membrane skin
-    // continues across the fusion point. 10-sided for a smooth round cross-section.
-    membrane.add_bumped(
+    // A thick volumetric tube whose surface is perturbed by the same organic noise as the soma
+    // (proportional to local radius, so thin twigs aren't shredded) — the membrane skin continues
+    // across the fusion point. 10-sided for a smooth round cross-section.
+    builder.add_bumped(
         &pts,
         &radii,
         10,
@@ -451,9 +444,6 @@ fn grow_dendrite(
         crate::tuning::DEND_BUMP_FREQ,
         noise_seed,
     );
-    // Inner core wire: a thinner smooth tube threaded down the same path — carries the bright pulse.
-    let core_radii: Vec<f32> = radii.iter().map(|r| r * crate::tuning::DEND_CORE_RATIO).collect();
-    core.add_with_u(&pts, &core_radii, 6, &dist);
     branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
@@ -464,8 +454,7 @@ fn grow_dendrite(
                 cdir = dir;
             }
             grow_dendrite(
-                membrane,
-                core,
+                builder,
                 branches,
                 s,
                 p,
@@ -618,14 +607,14 @@ mod tests {
         let tree = dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD);
         assert!(tree.branches.len() > 5, "trunks should split into children: {}", tree.branches.len());
         assert!(tree.branches.iter().any(|b| b.leaf), "tree has leaf tips");
-        let n = vertex_count(&tree.membrane);
+        let n = vertex_count(&tree.mesh);
         assert!(n > 5 * 10, "expected a dense branched tree, got {n} verts");
-        if let Some(VertexAttributeValues::Float32x3(p)) = tree.membrane.attribute(Mesh::ATTRIBUTE_POSITION)
+        if let Some(VertexAttributeValues::Float32x3(p)) = tree.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         {
             assert!(p.iter().flatten().all(|f| f.is_finite()), "all positions finite");
         }
         // Same seed → identical geometry (stable across reloads).
-        assert_eq!(n, vertex_count(&dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD).membrane));
+        assert_eq!(n, vertex_count(&dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD).mesh));
     }
 
     #[test]
@@ -636,8 +625,8 @@ mod tests {
         let node = Vec3::ZERO;
         let tree = dendrite_tree(node, 5, 1.0, 0x51CE);
         let (Some(VertexAttributeValues::Float32x3(pos)), Some(VertexAttributeValues::Float32x2(uv))) = (
-            tree.membrane.attribute(Mesh::ATTRIBUTE_POSITION),
-            tree.membrane.attribute(Mesh::ATTRIBUTE_UV_0),
+            tree.mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+            tree.mesh.attribute(Mesh::ATTRIBUTE_UV_0),
         ) else {
             panic!("expected position + uv attributes");
         };

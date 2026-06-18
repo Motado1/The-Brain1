@@ -11,7 +11,7 @@ use crate::geometry::*;
 use crate::interaction::Dissolving;
 use crate::lod::{LodBand, LodState};
 use crate::nav::*;
-use crate::shaders::PulseWaveMaterial;
+use crate::shaders::DendriteMaterial;
 use crate::tuning::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -291,7 +291,7 @@ pub(crate) fn drive_pulse_waves(
     graph: Res<BrainGraph>,
     pulses: Query<&Pulse>,
     conns: Query<&ConnectionWave>,
-    mut mats: ResMut<Assets<PulseWaveMaterial>>,
+    mut mats: ResMut<Assets<DendriteMaterial>>,
     mut active: ResMut<WaveActive>,
 ) {
     let by_channel: HashMap<usize, &ConnectionWave> = conns.iter().map(|c| (c.channel, c)).collect();
@@ -306,8 +306,9 @@ pub(crate) fn drive_pulse_waves(
         };
         let tt = p.t.clamp(0.0, 1.0);
         let t_center = if p.edge == cw.fwd_edge { tt } else { 1.0 - tt };
+        // Normalized 0..1 amplitude; the material's pulse_emissive (rest.w) supplies the intensity.
         // Once it has arrived the crest sits on the node end and its glow eases out (no hard cutoff).
-        let amp = PULSE_WAVE_AMP * if p.arrived { 1.0 - smoothstep(p.fade) } else { 1.0 };
+        let amp = if p.arrived { 1.0 - smoothstep(p.fade) } else { 1.0 };
         now.insert(edge.channel, (t_center, amp));
     }
     for (&ch, &(t_center, amp)) in &now {
@@ -378,7 +379,7 @@ pub(crate) fn drive_dendrite_waves(
     time: Res<Time>,
     firings: Query<&Firing>,
     mut dends: Query<&mut DendriteWave>,
-    mut mats: ResMut<Assets<PulseWaveMaterial>>,
+    mut mats: ResMut<Assets<DendriteMaterial>>,
 ) {
     let dt = time.delta_secs();
     // Let the crest fully clear the farthest tip (u=1) plus a few sigma before going idle.
@@ -392,7 +393,8 @@ pub(crate) fn drive_dendrite_waves(
         dw.prev_intensity = intensity;
         if dw.t <= end {
             dw.t += DEND_WAVE_SPEED * dt;
-            let amp = if dw.t <= end { DEND_WAVE_AMP } else { 0.0 };
+            // Normalized 0..1 gate; intensity comes from the material's pulse_emissive (rest.w).
+            let amp = if dw.t <= end { 1.0 } else { 0.0 };
             if let Some(m) = mats.get_mut(&dw.mat) {
                 m.wave = Vec4::new(dw.t, amp, PULSE_WIDTH, 0.0);
             }

@@ -18,7 +18,7 @@ use crate::geometry::*;
 use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
-use crate::shaders::{PulseWaveMaterial, SomaMaterial};
+use crate::shaders::{DendriteMaterial, SomaMaterial};
 use crate::tuning::*;
 
 /// Pre-built additive glow materials for the data anatomy (one palette, reused for every neuron).
@@ -184,7 +184,7 @@ pub(crate) fn load_graph(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
-    mut waves: ResMut<Assets<PulseWaveMaterial>>,
+    mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -212,7 +212,7 @@ pub(crate) fn apply_reload(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut somas: ResMut<Assets<SomaMaterial>>,
-    mut waves: ResMut<Assets<PulseWaveMaterial>>,
+    mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
@@ -246,7 +246,7 @@ fn build_scene(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     somas: &mut Assets<SomaMaterial>,
-    waves: &mut Assets<PulseWaveMaterial>,
+    waves: &mut Assets<DendriteMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
     path: &str,
@@ -616,27 +616,26 @@ fn build_scene(
                 if let Some(an) = anatomy.get(id) {
                     embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
                 }
-                // Outer membrane: the SAME Fresnel cell-wall material as the soma (translucent,
-                // rim-lit, bumpy) flowing continuously out from the body. Static — no wave.
-                commands.spawn((
-                    Mesh3d(meshes.add(tree.membrane)),
-                    MeshMaterial3d(soma_of[&network].clone()),
-                    Transform::default(),
-                    SceneItem,
-                ));
-                // Inner core: the bright amber "wire inside the glass" — a solid glowing filament
-                // (rest.w = DEND_CORE_GLOW) that carries the firing surge wave through the membrane.
-                let core_mat = waves.add(PulseWaveMaterial {
-                    color: LinearRgba::new(1.0, 0.5, 0.12, 1.0), // warm amber energy (tunable)
-                    rest: Vec4::new(TUBE_RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_CORE_GLOW),
+                // One volumetric tube wearing the hollow-membrane DendriteMaterial (network hue, so
+                // CRM/Research adapt automatically). It rests as a clear Fresnel-outlined vein and
+                // fills with light where the firing surge passes (DendriteWave drives the wave).
+                let (dr, dg, db) = theme_rgb(network);
+                let dend_mat = waves.add(DendriteMaterial {
+                    color: LinearRgba::new(dr, dg, db, 1.0),
+                    rest: Vec4::new(
+                        DEND_FRESNEL_POWER,
+                        DEND_EDGE_EMISSIVE,
+                        DEND_CENTER_ALPHA,
+                        DEND_PULSE_EMISSIVE,
+                    ),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
-                    Mesh3d(meshes.add(tree.core)),
-                    MeshMaterial3d(core_mat.clone()),
+                    Mesh3d(meshes.add(tree.mesh)),
+                    MeshMaterial3d(dend_mat.clone()),
                     Transform::default(),
                     // Start past the tip so it's idle until the soma first fires.
-                    DendriteWave { soma: node, mat: core_mat, t: 99.0, prev_intensity: 0.0 },
+                    DendriteWave { soma: node, mat: dend_mat, t: 99.0, prev_intensity: 0.0 },
                     SceneItem,
                 ));
             }
@@ -726,9 +725,14 @@ fn build_scene(
                 // travelling pulse wave. `fwd_edge` = the i→j directed edge wire() is about to push,
                 // so the wave system can orient a pulse's `t` to this tube's uv.x.
                 let fwd_edge = graph.edges.len();
-                let wave_mat = waves.add(PulseWaveMaterial {
+                let wave_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(nr, ng, nb, 1.0),
-                    rest: Vec4::new(TUBE_RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, 0.0),
+                    rest: Vec4::new(
+                        DEND_FRESNEL_POWER,
+                        DEND_EDGE_EMISSIVE,
+                        DEND_CENTER_ALPHA,
+                        DEND_PULSE_EMISSIVE,
+                    ),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((

@@ -123,13 +123,13 @@ pub(crate) struct Channel {
 }
 
 /// Links a connection's tube to its traffic `channel`, its forward directed-edge index (so a pulse's
-/// `t` maps to uv direction correctly), and its `PulseWaveMaterial` so the wave system can drive the
+/// `t` maps to uv direction correctly), and its `DendriteMaterial` so the wave system can drive the
 /// travelling Gaussian surge along it.
 #[derive(Component)]
 pub(crate) struct ConnectionWave {
     pub(crate) channel: usize,
     pub(crate) fwd_edge: usize,
-    pub(crate) mat: Handle<crate::shaders::PulseWaveMaterial>,
+    pub(crate) mat: Handle<crate::shaders::DendriteMaterial>,
 }
 
 /// Channels with an active wave last frame, so the wave system only resets ones that just went idle
@@ -143,7 +143,7 @@ pub(crate) struct WaveActive(pub(crate) std::collections::HashSet<usize>);
 #[derive(Component)]
 pub(crate) struct DendriteWave {
     pub(crate) soma: Entity,
-    pub(crate) mat: Handle<crate::shaders::PulseWaveMaterial>,
+    pub(crate) mat: Handle<crate::shaders::DendriteMaterial>,
     pub(crate) t: f32,
     pub(crate) prev_intensity: f32,
 }
