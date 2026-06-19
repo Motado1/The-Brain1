@@ -100,8 +100,11 @@ pub(crate) fn orbit_camera(
             }
         }
         if orbiting {
-            orbit.yaw -= drag.x * 0.005;
-            orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
+            // Rotation eases off as you get close (small orbit radius) so a soma you've flown right up
+            // to doesn't whip past on a small mouse move; full speed out in the galaxy.
+            let sens = 0.005 * (orbit.radius / 12.0).clamp(0.3, 1.0);
+            orbit.yaw -= drag.x * sens;
+            orbit.pitch = (orbit.pitch + drag.y * sens).clamp(-1.4, 1.4);
         }
 
         let eye = orbit.eye();
@@ -113,21 +116,29 @@ pub(crate) fn orbit_camera(
             orbit.focus += (-right * drag.x + up * drag.y) * (radius * 0.0015);
         }
         if scroll != 0.0 {
-            // Free flight: zoom DOLLIES the pivot forward/back along the view (toward the cursor),
-            // so scroll moves you *through* the scene with no hard stop — the pivot (and the eye that
-            // follows it) keeps advancing even at the radius floor, so you never get walled off close
-            // up. The step scales with the current orbit radius (fast across the galaxy, fine in
-            // close); the radius also eases down/up so rotation stays tight when you're zoomed in.
+            // Free flight, distance-aware: zoom flies the pivot toward whatever's UNDER THE CURSOR by a
+            // fraction of the distance to it. Point AT a soma → ease toward it and slow to a gentle
+            // stop as you arrive (no overshoot); point at open space (past a soma) → fly briskly
+            // through. The eye follows the pivot, so you move freely through the scene and rotation
+            // still orbits the pivot; the radius eases down/up so close-in rotation stays calm.
             let (cur_focus, cur_radius) = target.0.unwrap_or((orbit.focus, orbit.radius));
-            let aim_dir = cursor
+            let aim = cursor
                 .and_then(|c| camera.viewport_to_world(cam_global, c).ok())
-                .map(|ray| ray.direction.as_vec3().normalize_or_zero())
-                .unwrap_or(forward);
-            let new_focus = cur_focus + aim_dir * (cur_radius * scroll * 0.22);
-            let new_radius = (cur_radius * (1.0 - scroll * 0.10)).clamp(0.5, 8000.0);
+                .map(|ray| {
+                    let dir = ray.direction.as_vec3().normalize_or_zero();
+                    pick_index(&registry, ray.origin, dir)
+                        .map(|i| registry.nodes[i].pos) // a soma under the cursor → ease toward it
+                        .unwrap_or(cur_focus + dir * cur_radius) // open space → fly through
+                })
+                .unwrap_or(cur_focus + forward * cur_radius);
+            // Move a fraction of the way to the aim each notch: the step shrinks as the pivot nears the
+            // target, so approaching a soma decelerates naturally.
+            let f = (scroll * 0.18).clamp(-0.7, 0.7);
+            let new_focus = cur_focus + (aim - cur_focus) * f;
+            let new_radius = (cur_radius * (1.0 - scroll * 0.12)).clamp(0.4, 8000.0);
             target.0 = Some((new_focus, new_radius));
         }
-        orbit.radius = orbit.radius.clamp(0.5, 8000.0);
+        orbit.radius = orbit.radius.clamp(0.4, 8000.0);
         *transform = Transform::from_translation(orbit.eye()).looking_at(orbit.focus, Vec3::Y);
     }
 }
