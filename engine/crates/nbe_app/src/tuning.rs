@@ -50,12 +50,13 @@ pub(crate) const RIM_ALPHA: f32 = 0.68;
 // (bright camera-facing core, length-modulated brightness) that the travelling pulse floods with
 // light. Additive blending never occludes or stacks to opaque, so strands stay airy glows (the
 // reference look) — the structural fix for the old translucent-glass-tube "solid cylinder" problem.
-/// Camera-facing core softness (shader `pow(facing, .)`). Lower = broader/softer glow, higher = a
-/// thinner crisp line down the centre of the strand.
-pub(crate) const FILAMENT_CORE_POWER: f32 = 1.5;
-/// Resting strand brightness (HDR, drives bloom). Kept low so idle strands are *faint* glowing lines,
-/// not a bright fill. **Drop this FIRST if the strands bloom to pale** — it's the whole-surface
-/// emissive the old glass-tube design got wrong.
+/// Rim sharpness of the resting membrane outline (shader `pow(1-facing, .)`). Matched to the soma's
+/// `RIM_POWER` so the tubes read as the same glass cell-wall — higher = thinner/crisper outline with a
+/// clearer centre, lower = a broader glow that fills a thin twig.
+pub(crate) const FILAMENT_RIM_POWER: f32 = 2.5;
+/// Resting rim-glow brightness (HDR, drives bloom). Kept low so idle strands are *faint* clear-cored
+/// outlines, not a bright fill — the pulse supplies the bright surge. **Drop this FIRST if dormant
+/// strands look too bright/solid or bloom to pale.**
 pub(crate) const FILAMENT_GLOW: f32 = 0.6;
 /// Dendrite length profile floor: brightness at the hair-thin TIP relative to the soma root (root = 1).
 pub(crate) const FILAMENT_TIP_FLOOR: f32 = 0.15;

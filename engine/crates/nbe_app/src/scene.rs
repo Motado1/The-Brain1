@@ -624,7 +624,7 @@ fn build_scene(
                 let dend_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(dr, dg, db, 1.0), // a = 1.0 → dendrite (root→tip taper)
                     rest: Vec4::new(
-                        FILAMENT_CORE_POWER,
+                        FILAMENT_RIM_POWER,
                         FILAMENT_GLOW,
                         FILAMENT_TIP_FLOOR,
                         DEND_PULSE_EMISSIVE,
@@ -730,7 +730,7 @@ fn build_scene(
                 let wave_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(nr, ng, nb, 0.0), // a = 0.0 → connector (bright at both ends)
                     rest: Vec4::new(
-                        FILAMENT_CORE_POWER,
+                        FILAMENT_RIM_POWER,
                         FILAMENT_GLOW,
                         FILAMENT_MID_FLOOR,
                         DEND_PULSE_EMISSIVE,
