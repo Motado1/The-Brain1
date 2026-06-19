@@ -1,14 +1,26 @@
 # Pending visual / interaction verification
 
-## 🔴 UNSOLVED BLOCKER — tubes render SOLID, not translucent like the soma
-See `docs/STATUS.md` → "🔴 ACTIVE BLOCKER" for the full diagnosis + candidate fixes. Short version:
-connector + dendrite-trunk tubes look like solid opaque pale-amber cylinders; the soma looks like
-translucent glass. Same material/formula now, but a **cylinder is mostly grazing-angle so Fresnel
-fills it** (a sphere has a clear camera-facing front) + **bloom washes the bright rim to pale**. Thin
-twigs look fine. Tried: soma-material, sharp outline, inner wire, hollow-forced-rim, soma-exact+thin —
-all still solid. Next to try: **thinner + dimmer tubes**, or **`AlphaMode::Add` for tubes** (glow, no
-occlusion), and/or **lower bloom** (`Bloom.intensity` 0.3 in scene.rs spawn_camera). Headless dev —
-verify on the Windows GPU via screenshot.
+## 🟡 VERIFY NEXT — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
+The "tubes render SOLID" blocker was addressed by **starting the connections over**: dropped the
+translucent-glass-tube model (which fought a geometry-driven fill — a cylinder is almost all
+grazing-angle, so Fresnel filled it) for **thin additive emissive light strands** matching the
+reference images. `DendriteMaterial` is now `AlphaMode::Add`; `pulse_wave.wgsl` lights the
+camera-facing core (not a rim) and modulates brightness along the length; the pulse floods on top.
+Soma untouched. **Built blind — compiles + clippy clean; the look needs the owner's GPU.**
+- [ ] **Connections read as thin glowing light strands** (NOT solid cylinders) — faintly lit at rest,
+      brightest near the cell bodies, fading along their length. Compare to the 4 reference images.
+- [ ] **Dendrites taper root→tip** (bright where they leave the soma, hair-dim at the tips).
+- [ ] **Connectors are bright at both soma ends, dimmer mid-span.**
+- [ ] **Pulse still floods light along the strand** (data pulse on connectors; firing surge root→tip
+      on dendrites) — the timing/cooldown is unchanged, only the resting look.
+- [ ] **No solid/opaque fill and no pale bloom blow-out.** If strands wash to pale, drop
+      `FILAMENT_GLOW` first, then `DEND_PULSE_EMISSIVE`, then `Bloom.intensity` (0.3 → 0.18–0.22).
+- [ ] **⚠ runtime WGSL (naga on GPU)** — if strands render pink/black/invisible, send the console error.
+- Knobs (`tuning.rs`): `FILAMENT_CORE_POWER` (core softness — lower = broader glow), `FILAMENT_GLOW`
+  (resting brightness), `FILAMENT_TIP_FLOOR` / `FILAMENT_MID_FLOOR` (length-profile floors),
+  `DEND_PULSE_EMISSIVE` (pulse flood), `ROOT_FLARE` / `CONN_BODY` / `DEND_ROOT_R` (strand thinness);
+  `Bloom.intensity` in `scene.rs` `spawn_camera`. Profile is selected by `color.a` at the spawn sites
+  (`scene.rs` dendrite ~623 a=1.0, connector ~728 a=0.0).
 
 ## ⏳⏳⏳ NEWEST — `DendriteMaterial`: hollow membrane that fills with light on pulse
 Rework (owner spec): ONE color-agnostic volumetric tube material for connectors + dendrites. At rest

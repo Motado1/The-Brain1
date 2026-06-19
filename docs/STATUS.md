@@ -4,52 +4,37 @@
 > **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
 > removed). Commit & push straight to `main`.
 
-## 🔴 ACTIVE BLOCKER — tubes (connectors + dendrites) render SOLID, not translucent (2026-06-19)
+## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 
-**Symptom (owner, repeated):** the connector + dendrite-trunk tubes look like **solid opaque pale-amber
-cylinders** and "don't match the soma." The soma reads as a lovely **translucent bumpy glass sphere
-with a glowing core**; the tubes do not. Fine dendrite **twigs (very thin) look fine/translucent** —
-it's the **fatter** tubes (connectors, trunks) that read solid. Latest GPU screenshot still shows it
-after the fixes below. **No naga errors — the shader compiles & runs; this is purely an appearance
-problem.**
+**The long-standing "tubes render SOLID" blocker was addressed by starting the connections over** (owner
+agreed). Root cause was structural, not a shader bug: the connections were built as **translucent
+hollow glass tubes** (soma's Fresnel rim around a see-through centre). A sphere has a big camera-facing
+front that stays clear so only its rim glows → translucent; a **cylinder is almost all grazing-angle**,
+so Fresnel fills the whole width + front/back walls compound to opaque. Same material, opposite result,
+purely from shape. No tuning of a glass-tube shader could fix a geometry-driven fill — and the
+reference images aren't glass tubes anyway, they're **thin bright glowing strands**.
 
-**Likely ROOT CAUSE (diagnosis for the next session — not yet acted on):** it's **geometry + bloom**,
-not the material formula. The tubes now use the *exact* soma Fresnel membrane (`pulse_wave.wgsl` rest =
-`fresnel*rim_alpha + 0.015`, params = soma's `RIM_POWER/INTENSITY/ALPHA`). But:
-1. **A cylinder is mostly grazing-angle.** Viewed side-on, only a thin centre line faces the camera
-   (fresnel→0, clear); the rest of the width ramps to the rim (fresnel→1, alpha 0.68), and front+back
-   walls compound (~0.9 opaque). So a *fat* tube fills in. A **sphere** has a big camera-facing front
-   that stays clear, so only its rim ring glows → translucent. **Same material, opposite result, purely
-   from shape.** Thin tubes (twigs) escape this because their "solid" cross-section is just a hairline.
-2. **Bright rim emissive + bloom.** `RIM_INTENSITY≈1.6 × base_color` over *most* of a cylinder's
-   surface, run through HDR bloom, washes the whole tube to a bright pale colour (the tubes look
-   white-ish, not deep amber → a bloom blow-out tell).
+**What changed (built blind on Linux, compiles + clippy clean — needs the owner's GPU to verify):**
+- **New model = additive emissive filaments.** `pulse_wave.wgsl` rewritten: the strand's camera-FACING
+  front is the bright core (`pow(facing, core_power)`, the *inverse* of a Fresnel rim), brightness is
+  modulated along the length, and the travelling pulse floods light on top. `DendriteMaterial` is now
+  `AlphaMode::Add` (was `Blend`) — additive blending **never occludes or stacks to opaque**, so the
+  whole "solid cylinder" class of bug is gone by construction. Soma stays `SomaMaterial`/`Blend`,
+  untouched (owner likes it).
+- **Length profiles** via `color.a` flag: dendrites (a=1.0) bright at the soma root → dim at the tip;
+  connectors (a=0.0) bright at both soma ends → dim mid-span. Floor per profile in `rest.z`.
+- **Thinner geometry:** `ROOT_FLARE` 0.12→0.06, `CONN_BODY` 0.05→0.025, `DEND_ROOT_R` 0.34→0.18.
+- **Drive systems unchanged:** `drive_pulse_waves` / `drive_dendrite_waves` still just write the `wave`
+  uniform — the pulse/firing-surge timing the owner already confirmed is reused as-is.
 
-**What's already been tried (all still looked solid — don't just repeat these):** soma `SomaMaterial`
-on tubes → solid; sharp glass-outline rim (power 7) → flat; separate inner "wire" core mesh → owner
-disliked, still solid; hollow-membrane with forced-opaque rim (`mix(center,1,fresnel)`) → solid;
-**current**: soma-exact membrane formula + thinner connectors (`ROOT_FLARE` 0.24→0.12, `CONN_BODY`
-0.07→0.05) → STILL solid.
-
-**Candidate next approaches (fresh-eyes, pick/try):**
-- **Make tubes much thinner AND dimmer** — the twigs prove thin+dim reads translucent. Drop the tube
-  rim emissive well below the soma's (it's the whole surface, not a ring) and shrink connector/trunk
-  radii hard. Cheapest test.
-- **Additive blend for tubes** (`AlphaMode::Add`) instead of `Blend` — an additive tube *glows* and
-  never occludes/accumulates to opaque, so overlaps + fat bodies stay airy; the pulse adds bright on
-  top. Likely the most promising structural change. (Soma stays `Blend` for its core.)
-- **Lower bloom / tube HDR** — `Bloom.intensity` is 0.3 in `scene.rs` `spawn_camera`; the tube emissive
-  is HDR. If filled/bright tubes blow to white, this is why.
-- **Accept thin bright filaments** — the reference neurons' processes ARE thin bright lines; matching
-  the twig look everywhere (thin + glowing) may be the real target rather than "hollow glass".
-- Last resort: a genuinely different tube technique (screen-space/ribbon fake, or a thickness/depth
-  alpha) — bigger lift.
-
-**Key files / knobs:** material `DendriteMaterial` + `pulse_wave.wgsl` (shaders.rs); tube spawns +
-`Bloom` in `scene.rs` (dendrite ~620, connector ~725, camera ~138); `tuning.rs` →
-`RIM_POWER/INTENSITY/ALPHA` (shared soma+tube rim), `DEND_PULSE_EMISSIVE`, `ROOT_FLARE`, `CONN_BODY`,
-`DEND_ROOT_R`, `DEND_BUMP_*`. Dev is **headless — WGSL only validates on the owner's Windows GPU**;
-iterate via screenshot. **Then the deferred LOD is next (see below).**
+**Key files / knobs:** `pulse_wave.wgsl` + `DendriteMaterial` (`shaders.rs`); spawns in `scene.rs`
+(dendrite ~623, connector ~728); `tuning.rs` → `FILAMENT_CORE_POWER`, `FILAMENT_GLOW` (**drop FIRST if
+it blooms pale**), `FILAMENT_TIP_FLOOR`, `FILAMENT_MID_FLOOR`, `DEND_PULSE_EMISSIVE`, `ROOT_FLARE`,
+`CONN_BODY`, `DEND_ROOT_R`; `Bloom.intensity` 0.3 in `scene.rs` `spawn_camera` (lower toward 0.18–0.22
+if strands blow out). `RIM_*` are now **soma-only**. Dev is **headless — WGSL only validates on the
+owner's Windows GPU** (if strands render pink/black/invisible, send the console `naga` error); iterate
+via screenshot. See `docs/VISUAL_VERIFICATION.md` for the per-item checklist. **Then the deferred LOD
+is next (see below).**
 
 ---
 
