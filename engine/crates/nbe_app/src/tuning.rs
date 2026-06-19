@@ -36,7 +36,7 @@ pub(crate) const MOTES_PER_NETWORK: usize = 360;
 /// the flow deliberate without letting backlogs build.
 pub(crate) const QUEUE_CAP: usize = 2;
 
-// ---- soma membrane (Fresnel rim) shader -------------------------------------------------
+// ---- soma membrane (Fresnel rim) shader — SOMA ONLY (the tubes no longer share these) ---
 /// Rim sharpness (higher = thinner cell-wall line).
 pub(crate) const RIM_POWER: f32 = 2.5;
 /// Rim glow brightness.
@@ -45,12 +45,24 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 /// *through* the cell body (the reference look) instead of a flat opaque shell.
 pub(crate) const RIM_ALPHA: f32 = 0.68;
 
-// ---- volumetric tube material (hollow membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial) -
-// Connectors + dendrites share one color-agnostic material. At REST it uses the SAME Fresnel formula
-// and params as the soma membrane above (RIM_POWER/RIM_INTENSITY/RIM_ALPHA) so the tubes read as the
-// same translucent cell-wall as the cell body; a travelling pulse then OVERRIDES the membrane where
-// it passes — forcing it opaque and flooding it with intense emissive (the tube fills with light).
-/// Emissive multiplier applied where a pulse is active — massive (HDR) so the filled segment blooms.
+// ---- additive glowing-filament material (connectors + dendrites — pulse_wave.wgsl / DendriteMaterial)
+// Connectors + dendrites share one color-agnostic ADDITIVE material: thin emissive light strands
+// (bright camera-facing core, length-modulated brightness) that the travelling pulse floods with
+// light. Additive blending never occludes or stacks to opaque, so strands stay airy glows (the
+// reference look) — the structural fix for the old translucent-glass-tube "solid cylinder" problem.
+/// Camera-facing core softness (shader `pow(facing, .)`). Lower = broader/softer glow, higher = a
+/// thinner crisp line down the centre of the strand.
+pub(crate) const FILAMENT_CORE_POWER: f32 = 1.5;
+/// Resting strand brightness (HDR, drives bloom). Kept low so idle strands are *faint* glowing lines,
+/// not a bright fill. **Drop this FIRST if the strands bloom to pale** — it's the whole-surface
+/// emissive the old glass-tube design got wrong.
+pub(crate) const FILAMENT_GLOW: f32 = 0.6;
+/// Dendrite length profile floor: brightness at the hair-thin TIP relative to the soma root (root = 1).
+pub(crate) const FILAMENT_TIP_FLOOR: f32 = 0.15;
+/// Connector length profile floor: brightness at MID-SPAN relative to the two bright soma ends.
+pub(crate) const FILAMENT_MID_FLOOR: f32 = 0.4;
+/// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
+/// Drop after `FILAMENT_GLOW` if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
 
 // ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
@@ -70,9 +82,10 @@ pub(crate) const SOMA_PROCESS_TIGHTNESS: f32 = 3.0;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
-pub(crate) const ROOT_FLARE: f32 = 0.12;
-/// Slender connector body radius (absolute) between the two funnels — the tunnel itself.
-pub(crate) const CONN_BODY: f32 = 0.05;
+pub(crate) const ROOT_FLARE: f32 = 0.06;
+/// Slender connector body radius (absolute) between the two funnels — the tunnel itself. Kept very
+/// thin so the additive strand reads as a glowing *line* (thin twigs already read right today).
+pub(crate) const CONN_BODY: f32 = 0.025;
 /// Fraction of a connector's length each end funnel occupies (the rest is the slender tunnel body).
 pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
@@ -92,7 +105,7 @@ pub(crate) const DEND_EMBED: f32 = 0.8;
 /// Trunk *base* width as a fraction of the soma radius — wide where it fuses with the soma, then a
 /// concave taper (DEND_ROOT_TAPER_POW) necks it down. Thickened so the trunks are clearly volumetric
 /// tubes (the membrane flowing out), not thin wires.
-pub(crate) const DEND_ROOT_R: f32 = 0.34;
+pub(crate) const DEND_ROOT_R: f32 = 0.18;
 /// Concavity of the trunk's base→tip taper (>1 = stays thin along its length but flares sharply at
 /// the soma, the tree-branch fillet). 1.0 would be a plain cone.
 pub(crate) const DEND_ROOT_TAPER_POW: f32 = 2.6;

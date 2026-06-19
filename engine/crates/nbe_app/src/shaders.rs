@@ -30,15 +30,19 @@ impl Material for SomaMaterial {
     }
 }
 
-/// Color-agnostic volumetric tube material (connectors + dendrites): a hollow Fresnel-outlined
-/// membrane at rest that the travelling pulse fills with light. Per-tube instance so each carries its
-/// own wave timeline uniform. See pulse_wave.wgsl.
+/// Color-agnostic ADDITIVE glowing-filament material (connectors + dendrites): a thin emissive light
+/// strand (bright camera-facing core, length-modulated brightness) that the travelling pulse floods
+/// with light. Rendered with `AlphaMode::Add` so strands glow and never occlude/stack to opaque —
+/// the reference-image look, and the structural fix for the old "solid cylinder" tubes. Per-tube
+/// instance so each carries its own wave timeline uniform. See pulse_wave.wgsl.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
 pub(crate) struct DendriteMaterial {
-    /// rgb = base colour (network hue: amber CRM / indigo Research), a unused.
+    /// rgb = base colour (network hue: amber CRM / indigo Research); a = profile flag
+    /// (>=0.5 dendrite root→tip taper, <0.5 connector bright-at-both-ends).
     #[uniform(0)]
     pub(crate) color: LinearRgba,
-    /// x = fresnel power, y = edge emissive, z = centre alpha (hollow), w = pulse emissive (massive).
+    /// x = core power (camera-facing softness), y = resting glow, z = length-profile floor,
+    /// w = pulse emissive (massive, the travelling flood).
     #[uniform(1)]
     pub(crate) rest: Vec4,
     /// x = wave centre t (0..1), y = amplitude (0 = idle, 1 = active), z = width (sigma), w unused.
@@ -51,7 +55,7 @@ impl Material for DendriteMaterial {
         ShaderRef::Handle(PULSE_WAVE_SHADER)
     }
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
+        AlphaMode::Add
     }
 }
 
