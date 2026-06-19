@@ -1,5 +1,21 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — Blender soma import pipeline (`assets/soma.glb`) (2026-06-19)
+The renderer now imports a Blender-authored cell body. Drop a `soma.glb` into
+`engine/crates/nbe_app/assets/` and re-run — no recompile. If the file is absent, the procedural
+soma is used (app always runs). The glowing nucleus + halo billboards and firing/breathing are kept;
+only the membrane *shell* is swapped, placed at each neuron and scaled by activation.
+- How it works: `load_soma_gltf` (Startup) loads `soma.glb` scene 0; `apply_soma_gltf` (Update) waits
+  until it's fully loaded, then replaces each `ProceduralSoma` membrane with a `SceneRoot` at the same
+  transform (+`Breath`). Reload-safe (re-swaps after a live scene rebuild). Resource `SomaGltf`.
+- Export spec + tips are in `engine/crates/nbe_app/assets/README.md`.
+- [ ] **Drop in `soma.glb`** → the cell bodies become your Blender model (procedural icosphere gone),
+      correctly sized/positioned, still glowing (nucleus) and breathing.
+- [ ] **No file** → procedural soma still renders (graceful fallback); one info log points at the path.
+- [ ] **Per-region tint** of the imported body is NOT done yet (network colour still comes from the
+      nucleus core). Ask to add body-tinting + multi-variant (`soma_01..06.glb`) once the look lands.
+
+
 ## 🟡 VERIFY NEXT — connections as ORGANIC biological processes (thin, bumpy, alive) (2026-06-19)
 Owner spec (after glass-tube + glowing-core were both rejected): forget matching the soma exactly —
 the connections should just look like **real, alive, organic** neural processes (like the thin

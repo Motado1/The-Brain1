@@ -113,11 +113,12 @@ fn main() {
         .insert_resource(LodState::default())
         .insert_resource(WaveActive::default())
         .insert_resource(InteractionState::default())
+        .init_resource::<SomaGltf>()
         .add_message::<UiRequestSprout>()
         .add_message::<UiRequestLink>()
         .add_message::<UiRequestEdit>()
         .add_message::<UiRequestDissolve>()
-        .add_systems(Startup, (load_graph, setup_hud, spawn_lights))
+        .add_systems(Startup, (load_graph, setup_hud, spawn_lights, load_soma_gltf))
         .add_systems(
             EguiPrimaryContextPass,
             (
@@ -150,6 +151,7 @@ fn main() {
                 drive_dendrite_waves,
                 drift_motes,
                 apply_reload,
+                apply_soma_gltf,
             ),
         )
         .add_systems(

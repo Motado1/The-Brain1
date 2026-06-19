@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::gltf::GltfAssetLabel;
 use bevy::image::Image;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
@@ -201,6 +202,51 @@ pub(crate) fn load_graph(
     )
     .unwrap_or((Vec3::ZERO, 200.0));
     spawn_camera(&mut commands, center, radius);
+}
+
+/// Startup: kick off loading the optional Blender soma model (`assets/soma.glb`, first scene). If the
+/// file is absent the handle never finishes loading and the procedural soma is kept (see
+/// `apply_soma_gltf`). Drop `soma.glb` into `crates/nbe_app/assets/` (dev) or next to the binary
+/// (release) and it appears on the next run — no recompile.
+pub(crate) fn load_soma_gltf(asset_server: Res<AssetServer>, mut soma: ResMut<SomaGltf>) {
+    soma.scene = Some(asset_server.load(GltfAssetLabel::Scene(0).from_asset("soma.glb")));
+    info!("soma import: looking for assets/soma.glb (drop a Blender export there to use it)");
+}
+
+/// Once `soma.glb` has fully loaded, replace each procedural soma membrane with the imported model at
+/// the same position + activation scale (still breathing). The glowing nucleus + halo billboards are
+/// separate entities and are left untouched, so firing/glow are unchanged — only the cell-body shell
+/// is swapped. Runs every frame so it also catches somas from a live scene reload; a missing or
+/// still-loading asset simply leaves the procedural soma in place.
+pub(crate) fn apply_soma_gltf(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    soma: Res<SomaGltf>,
+    q: Query<(Entity, &Transform), With<ProceduralSoma>>,
+) {
+    if q.is_empty() {
+        return;
+    }
+    let Some(scene) = soma.scene.as_ref() else {
+        return;
+    };
+    if !asset_server.is_loaded_with_dependencies(scene.id()) {
+        return; // still loading, or absent/failed → keep the procedural soma
+    }
+    let mut s: u64 = 0xA11CE;
+    for (ent, tf) in &q {
+        let r = tf.scale.max_element().max(0.0001);
+        let phase = lcg(&mut s) * std::f32::consts::TAU;
+        let speed = 0.6 + lcg(&mut s) * 0.8;
+        commands.spawn((
+            SceneRoot(scene.clone()),
+            Transform::from_translation(tf.translation).with_scale(Vec3::splat(r)),
+            Breath { base: Vec3::splat(r), phase, speed },
+            SomaBody,
+            SceneItem,
+        ));
+        commands.entity(ent).despawn();
+    }
 }
 
 /// Rebuild the graph from the DB when a button has changed it: despawn the old scene and re-create
@@ -531,6 +577,7 @@ fn build_scene(
                 MeshMaterial3d(soma_of[&network].clone()),
                 Transform::from_translation(p).with_scale(Vec3::splat(r)),
                 Breath { base: Vec3::splat(r), phase, speed },
+                ProceduralSoma,
                 SceneItem,
             ));
 

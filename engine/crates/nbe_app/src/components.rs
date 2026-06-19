@@ -164,6 +164,23 @@ pub(crate) struct LodReveal {
 #[derive(Component)]
 pub(crate) struct SceneItem;
 
+/// Marks the procedural soma membrane mesh. If a Blender-authored `assets/soma.glb` is present, the
+/// `apply_soma_gltf` system swaps these for the imported model; otherwise the procedural soma stays.
+#[derive(Component)]
+pub(crate) struct ProceduralSoma;
+
+/// Marks an imported glTF soma body (so tools/reloads can find them).
+#[derive(Component)]
+pub(crate) struct SomaBody;
+
+/// Handle to the optional Blender soma model (`assets/soma.glb`, first scene). `None` until the
+/// startup loader sets it; the swap only fires once the asset is fully loaded, so a missing file
+/// simply leaves the procedural soma in place.
+#[derive(Resource, Default)]
+pub(crate) struct SomaGltf {
+    pub(crate) scene: Option<Handle<Scene>>,
+}
+
 /// Cross-system signal + status line for button actions that change the DB and need a redraw.
 #[derive(Resource, Default)]
 pub(crate) struct SceneControl {
