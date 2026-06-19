@@ -623,9 +623,9 @@ fn build_scene(
                 let dend_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(dr, dg, db, 1.0),
                     rest: Vec4::new(
-                        DEND_FRESNEL_POWER,
-                        DEND_EDGE_EMISSIVE,
-                        DEND_CENTER_ALPHA,
+                        RIM_POWER,
+                        RIM_INTENSITY,
+                        RIM_ALPHA,
                         DEND_PULSE_EMISSIVE,
                     ),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
@@ -728,9 +728,9 @@ fn build_scene(
                 let wave_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(nr, ng, nb, 1.0),
                     rest: Vec4::new(
-                        DEND_FRESNEL_POWER,
-                        DEND_EDGE_EMISSIVE,
-                        DEND_CENTER_ALPHA,
+                        RIM_POWER,
+                        RIM_INTENSITY,
+                        RIM_ALPHA,
                         DEND_PULSE_EMISSIVE,
                     ),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),

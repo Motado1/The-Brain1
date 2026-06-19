@@ -46,16 +46,10 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 pub(crate) const RIM_ALPHA: f32 = 0.68;
 
 // ---- volumetric tube material (hollow membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial) -
-// Connectors + dendrites share one color-agnostic material: at rest a hollow Fresnel-outlined
-// membrane (lit opaque rim, near-transparent see-through centre); a travelling pulse OVERRIDES the
-// hollow centre, forcing it opaque and flooding it with intense emissive — the tube fills with light.
-/// Fresnel falloff sharpness. Moderate (not razor-thin) so the rim is a visible glowing outline while
-/// the camera-facing centre still reads clearly hollow.
-pub(crate) const DEND_FRESNEL_POWER: f32 = 3.0;
-/// Resting rim glow multiplier on base_color at grazing angles (HDR → the outline blooms gently).
-pub(crate) const DEND_EDGE_EMISSIVE: f32 = 1.8;
-/// Resting alpha of the camera-facing centre — low, so the tube is a hollow, highly transparent vein.
-pub(crate) const DEND_CENTER_ALPHA: f32 = 0.07;
+// Connectors + dendrites share one color-agnostic material. At REST it uses the SAME Fresnel formula
+// and params as the soma membrane above (RIM_POWER/RIM_INTENSITY/RIM_ALPHA) so the tubes read as the
+// same translucent cell-wall as the cell body; a travelling pulse then OVERRIDES the membrane where
+// it passes — forcing it opaque and flooding it with intense emissive (the tube fills with light).
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the filled segment blooms.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
 
@@ -76,9 +70,9 @@ pub(crate) const SOMA_PROCESS_TIGHTNESS: f32 = 3.0;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
-pub(crate) const ROOT_FLARE: f32 = 0.24;
+pub(crate) const ROOT_FLARE: f32 = 0.12;
 /// Slender connector body radius (absolute) between the two funnels — the tunnel itself.
-pub(crate) const CONN_BODY: f32 = 0.07;
+pub(crate) const CONN_BODY: f32 = 0.05;
 /// Fraction of a connector's length each end funnel occupies (the rest is the slender tunnel body).
 pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).

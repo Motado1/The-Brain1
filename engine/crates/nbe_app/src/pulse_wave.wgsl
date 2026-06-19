@@ -10,7 +10,7 @@
 #import bevy_pbr::mesh_view_bindings::view
 
 @group(3) @binding(0) var<uniform> color: vec4<f32>; // rgb = base_color (network hue), a unused
-// x = fresnel power, y = edge emissive, z = centre alpha (hollow), w = pulse emissive (massive).
+// x = fresnel power, y = edge emissive, z = rim alpha, w = pulse emissive (massive).
 @group(3) @binding(1) var<uniform> rest: vec4<f32>;
 // x = wave centre t (0..1 along the path), y = amplitude (0 = idle, 1 = active), z = width (sigma).
 @group(3) @binding(2) var<uniform> wave: vec4<f32>;
@@ -22,16 +22,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let facing = max(dot(n, v), 0.0);
     let fresnel = pow(1.0 - facing, rest.x); // 0 facing the camera → 1 at the grazing rim
 
-    // Resting hollow membrane: opaque lit rim, transparent see-through centre.
-    let membrane_a = mix(rest.z, 1.0, fresnel);
+    // Resting membrane: the SAME formula as the soma (soma.wgsl) — transparent see-through centre,
+    // translucent lit rim — so the tubes read as the same cell-wall as the cell body.
+    let membrane_a = clamp(fresnel * rest.z + 0.015, 0.0, 1.0);
 
     // Travelling Gaussian pulse along the length (uv.x). amplitude (wave.y) is 0 idle, up to 1 active.
     let w = max(wave.z, 0.001);
     let d = in.uv.x - wave.x;
     let g = exp(-(d * d) / (2.0 * w * w)) * wave.y;
 
-    // The pulse OVERRIDES the hollow rule — where it is active the tube fills (alpha → 1.0) and floods
-    // with intense emissive; at rest only the rim glows.
+    // The pulse OVERRIDES the membrane — where it is active the tube fills (alpha → 1.0) and floods
+    // with intense emissive; at rest only the rim glows, exactly like the soma.
     let alpha = max(membrane_a, g);
     let emissive = color.rgb * (rest.y * fresnel + rest.w * g);
 
