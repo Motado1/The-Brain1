@@ -1,5 +1,15 @@
 # Pending visual / interaction verification
 
+## 🔴 UNSOLVED BLOCKER — tubes render SOLID, not translucent like the soma
+See `docs/STATUS.md` → "🔴 ACTIVE BLOCKER" for the full diagnosis + candidate fixes. Short version:
+connector + dendrite-trunk tubes look like solid opaque pale-amber cylinders; the soma looks like
+translucent glass. Same material/formula now, but a **cylinder is mostly grazing-angle so Fresnel
+fills it** (a sphere has a clear camera-facing front) + **bloom washes the bright rim to pale**. Thin
+twigs look fine. Tried: soma-material, sharp outline, inner wire, hollow-forced-rim, soma-exact+thin —
+all still solid. Next to try: **thinner + dimmer tubes**, or **`AlphaMode::Add` for tubes** (glow, no
+occlusion), and/or **lower bloom** (`Bloom.intensity` 0.3 in scene.rs spawn_camera). Headless dev —
+verify on the Windows GPU via screenshot.
+
 ## ⏳⏳⏳ NEWEST — `DendriteMaterial`: hollow membrane that fills with light on pulse
 Rework (owner spec): ONE color-agnostic volumetric tube material for connectors + dendrites. At rest
 a **hollow Fresnel-outlined membrane** (lit opaque rim, ~7% see-through centre — a clear "vein"); a

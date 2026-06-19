@@ -4,6 +4,79 @@
 > **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
 > removed). Commit & push straight to `main`.
 
+## 🔴 ACTIVE BLOCKER — tubes (connectors + dendrites) render SOLID, not translucent (2026-06-19)
+
+**Symptom (owner, repeated):** the connector + dendrite-trunk tubes look like **solid opaque pale-amber
+cylinders** and "don't match the soma." The soma reads as a lovely **translucent bumpy glass sphere
+with a glowing core**; the tubes do not. Fine dendrite **twigs (very thin) look fine/translucent** —
+it's the **fatter** tubes (connectors, trunks) that read solid. Latest GPU screenshot still shows it
+after the fixes below. **No naga errors — the shader compiles & runs; this is purely an appearance
+problem.**
+
+**Likely ROOT CAUSE (diagnosis for the next session — not yet acted on):** it's **geometry + bloom**,
+not the material formula. The tubes now use the *exact* soma Fresnel membrane (`pulse_wave.wgsl` rest =
+`fresnel*rim_alpha + 0.015`, params = soma's `RIM_POWER/INTENSITY/ALPHA`). But:
+1. **A cylinder is mostly grazing-angle.** Viewed side-on, only a thin centre line faces the camera
+   (fresnel→0, clear); the rest of the width ramps to the rim (fresnel→1, alpha 0.68), and front+back
+   walls compound (~0.9 opaque). So a *fat* tube fills in. A **sphere** has a big camera-facing front
+   that stays clear, so only its rim ring glows → translucent. **Same material, opposite result, purely
+   from shape.** Thin tubes (twigs) escape this because their "solid" cross-section is just a hairline.
+2. **Bright rim emissive + bloom.** `RIM_INTENSITY≈1.6 × base_color` over *most* of a cylinder's
+   surface, run through HDR bloom, washes the whole tube to a bright pale colour (the tubes look
+   white-ish, not deep amber → a bloom blow-out tell).
+
+**What's already been tried (all still looked solid — don't just repeat these):** soma `SomaMaterial`
+on tubes → solid; sharp glass-outline rim (power 7) → flat; separate inner "wire" core mesh → owner
+disliked, still solid; hollow-membrane with forced-opaque rim (`mix(center,1,fresnel)`) → solid;
+**current**: soma-exact membrane formula + thinner connectors (`ROOT_FLARE` 0.24→0.12, `CONN_BODY`
+0.07→0.05) → STILL solid.
+
+**Candidate next approaches (fresh-eyes, pick/try):**
+- **Make tubes much thinner AND dimmer** — the twigs prove thin+dim reads translucent. Drop the tube
+  rim emissive well below the soma's (it's the whole surface, not a ring) and shrink connector/trunk
+  radii hard. Cheapest test.
+- **Additive blend for tubes** (`AlphaMode::Add`) instead of `Blend` — an additive tube *glows* and
+  never occludes/accumulates to opaque, so overlaps + fat bodies stay airy; the pulse adds bright on
+  top. Likely the most promising structural change. (Soma stays `Blend` for its core.)
+- **Lower bloom / tube HDR** — `Bloom.intensity` is 0.3 in `scene.rs` `spawn_camera`; the tube emissive
+  is HDR. If filled/bright tubes blow to white, this is why.
+- **Accept thin bright filaments** — the reference neurons' processes ARE thin bright lines; matching
+  the twig look everywhere (thin + glowing) may be the real target rather than "hollow glass".
+- Last resort: a genuinely different tube technique (screen-space/ribbon fake, or a thickness/depth
+  alpha) — bigger lift.
+
+**Key files / knobs:** material `DendriteMaterial` + `pulse_wave.wgsl` (shaders.rs); tube spawns +
+`Bloom` in `scene.rs` (dendrite ~620, connector ~725, camera ~138); `tuning.rs` →
+`RIM_POWER/INTENSITY/ALPHA` (shared soma+tube rim), `DEND_PULSE_EMISSIVE`, `ROOT_FLARE`, `CONN_BODY`,
+`DEND_ROOT_R`, `DEND_BUMP_*`. Dev is **headless — WGSL only validates on the owner's Windows GPU**;
+iterate via screenshot. **Then the deferred LOD is next (see below).**
+
+---
+
+## ✅ Done & working (consolidated on `main`)
+- **Pulse system:** continuous Gaussian wave along connectors (replaced dot pulses); per-channel
+  cooldown (absorb → ~2s → reply, no ping-pong); pulse eases into the node (`Pulse.arrived/fade`).
+- **Dendrite surge:** firing neuron's light runs root→tip (uv-by-distance), via `DendriteWave` +
+  `drive_dendrite_waves`.
+- **Material:** `DendriteMaterial` (renamed from `PulseWaveMaterial`) — one color-agnostic tube
+  material; rest = soma membrane formula, pulse overrides (alpha→1 + `DEND_PULSE_EMISSIVE` flood).
+  Single tube per dendrite (inner "wire" core removed). ⬆ appearance still unsolved (blocker above).
+- **Soma:** bulges toward its connections (star body, `soma_mesh` + `network_links`); granular
+  `SOMA_BUMP`; glowing core enclosed in the translucent membrane.
+- **UI (ported from the other chat):** Ctrl+P/Cmd+K omni-search, cinematic camera glide, glass theme,
+  sidebar fly-to (`ui.rs`, `search.rs`, `nav.rs` CameraGlide).
+- **Branch fork RETIRED:** `session-frontier-continue-jap19w` was force-reset to `main`; `main` is the
+  single source of truth. Dead branches `claude/claude-md-continuation-v10vu2`,
+  `claude/neural-business-engine-arch-h7i8xj` (0 unique commits) deletable anytime.
+
+## ⏭ NEXT after the tube look is settled: cosmic **LOD** reveal
+LOD anchor exists (`lod.rs`: `compute_lod`, `LodState`, `apply_lod_reveal`, `LodReveal` on the embedded
+anatomy). NOT yet wired to bloom/cull dendrite detail by distance. Owner couldn't tell it was working —
+make the macro→micro reveal (trunks persist zoomed-out; branches + session/package anatomy bloom in on
+approach) clearly visible and verifiable.
+
+<details><summary>earlier consolidation log (2026-06-18) — kept for reference</summary>
+
 ## 🚨 BRANCH FORK — CONSOLIDATION IN PROGRESS (2026-06-18)
 
 **UPDATE — owner A/B-picked and `main` is now the consolidated winner.** After booting both versions
@@ -49,6 +122,7 @@ There were **two active chats on two diverged branches** building overlapping fe
 4. Each ported feature = a verifiable slice, compile + test green, owner verifies on the GPU.
 - **Dead branches** (0 unique commits, safe to delete anytime): `claude/claude-md-continuation-v10vu2`,
   `claude/neural-business-engine-arch-h7i8xj`.
+</details>
 </details>
 
 ## ⭐ SESSION FRONTIER (read first — latest state)
