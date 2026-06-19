@@ -7,8 +7,14 @@ grazing-angle, so Fresnel filled it) for **thin additive emissive light strands*
 reference images. `DendriteMaterial` is now `AlphaMode::Add`; `pulse_wave.wgsl` lights the
 camera-facing core (not a rim) and modulates brightness along the length; the pulse floods on top.
 Soma untouched. **Built blind — compiles + clippy clean; the look needs the owner's GPU.**
+- [ ] **Dormant strands read like the soma membrane** — a clear see-through centre with a glowing
+      Fresnel-rim outline (the same glass cell-wall as the soma), NOT a solid bright core. The
+      travelling pulse then floods the strand bright. (Shader now uses `pow(1-facing)` rim, matched to
+      the soma's `RIM_POWER`; geometry is thin so the rim reads as a clean outline, not a fill.)
 - [ ] **Connections read as thin glowing light strands** (NOT solid cylinders) — faintly lit at rest,
       brightest near the cell bodies, fading along their length. Compare to the 4 reference images.
+- [ ] **Dendrite trunks are thin** (DEND_ROOT_R 0.07) — primary processes read as glowing lines like
+      the fine twigs up close, not fat shaded tubes. Raise toward 0.10 if too spindly.
 - [ ] **Dendrites taper root→tip** (bright where they leave the soma, hair-dim at the tips).
 - [ ] **Connectors are bright at both soma ends, dimmer mid-span.**
 - [ ] **Pulse still floods light along the strand** (data pulse on connectors; firing surge root→tip
@@ -126,6 +132,12 @@ cargo run -p nbe_app --release -- --db brain.db
 ## ⏳ PENDING — verify these on the desktop
 
 ### Camera
+- [ ] **Free-flight zoom (distance-aware)**: scroll flies the pivot toward whatever's under the
+      cursor. Point AT a soma → eases toward it and stops gently close up (no overshoot, no hard
+      wall); point at open space past a soma → flies briskly through. Rotation eases off when zoomed
+      in close so a soma you're next to doesn't whip past. *Tune:* `orbit_camera` scroll `f` step
+      `scroll*0.18`, radius ease `scroll*0.12`, floor `0.4`; rotation `sens = 0.005 * (radius/12)
+      .clamp(0.3,1.0)`.
 - [ ] **Zoom-to-cursor pivot** (commit `dc329bd`): zoom into a cluster, then left-drag — does it
       orbit *what you zoomed into* (not a stale far point)? This was the reported bug.
       *Tune:* `systems.rs orbit_camera` — `scroll * 0.18` (radius rate), `scroll * 0.35` (pull toward
