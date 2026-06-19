@@ -399,18 +399,10 @@ fn build_scene(
         Network::Business => (1.0, 0.30, 0.07),
         Network::Research => (0.5, 0.42, 1.0),
     };
-    type ThemeMats = (
-        Handle<StandardMaterial>, // membrane
-        Handle<StandardMaterial>, // edge
-        Handle<StandardMaterial>, // dendrite
-        Handle<StandardMaterial>, // pulse
-    );
-    let mut themes: HashMap<Network, ThemeMats> = HashMap::new();
-    // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader).
+    // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader). The connectors +
+    // dendrites wear the same glass via a per-tube DendriteMaterial built at spawn time (so each can
+    // carry its own pulse/firing surge) — see the node + web loops below.
     let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
-    // Dendrites wear the unified glassy wave material (a per-soma instance is built at spawn time so
-    // each tree can carry its own firing surge) — see the node loop. The soma keeps its own
-    // Fresnel cell-wall material here.
     for net in Network::ALL {
         let (r, g, b) = theme_rgb(net);
         soma_of.insert(
@@ -420,51 +412,6 @@ fn build_scene(
                 params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
             }),
         );
-        // The tissue (membrane / edges / dendrites) is near-neutral translucent glass that takes its
-        // colour from the LIGHT — the bright cores blooming through/over it and the scene lights —
-        // rather than glowing its own hue. Only a faint theme whisper so dim, far-from-core tissue
-        // still hints at its network. (The cores, halos, pulses, and motes remain the real emitters.)
-        // Translucent structural body — kept very faint so it gives form without over-blending
-        // (and thus flickering) against the additive glow that sits at the same point.
-        let membrane = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.5, 0.48, 0.46, 0.13),
-            emissive: LinearRgba::rgb(r * 0.04, g * 0.04, b * 0.04),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.4,
-            metallic: 0.0,
-            ..default()
-        });
-        // Thin, *glowing* filaments — like lit fibre-optic threads (the reference look). Now that
-        // they're thin, a colour glow reads as light, not orange plastic. Blend + emissive + bloom.
-        let edge = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.10),
-            emissive: LinearRgba::rgb(r * 0.6, g * 0.6, b * 0.6),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.06,
-            metallic: 0.0,
-            reflectance: 0.7,
-            ..default()
-        });
-        let dendrite = materials.add(StandardMaterial {
-            base_color: Color::srgba(r, g, b, 0.10),
-            emissive: LinearRgba::rgb(r * 0.45, g * 0.45, b * 0.45),
-            alpha_mode: AlphaMode::Blend,
-            cull_mode: None,
-            perceptual_roughness: 0.1,
-            metallic: 0.0,
-            ..default()
-        });
-        let pulse = materials.add(StandardMaterial {
-            base_color: Color::LinearRgba(LinearRgba::new(r * 2.6, g * 2.6, b * 2.6, 1.0)),
-            base_color_texture: Some(glow.clone()),
-            unlit: true,
-            alpha_mode: AlphaMode::Add,
-            cull_mode: None,
-            ..default()
-        });
-        themes.insert(net, (membrane, edge, dendrite, pulse));
     }
 
     // Per-entity firing threshold (defaults 0.5).
@@ -623,7 +570,7 @@ fn build_scene(
                 let (dr, dg, db) = theme_rgb(network);
                 let dend_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(dr, dg, db, 1.0),
-                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, DEND_PULSE_EMISSIVE),
+                    rest: Vec4::new(RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_PULSE_EMISSIVE),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
@@ -679,8 +626,6 @@ fn build_scene(
     let mut channel_count = 0usize;
     for (&network, ids) in &groups {
         let (nr, ng, nb) = theme_rgb(network);
-        // Small additive glow dots strung along each filament — the "beads of light" of the refs.
-        let bead_mat = themes[&network].3.clone();
         let idxs: Vec<usize> = ids.iter().map(|id| index[id]).collect();
         let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
         let mut linked: HashSet<(usize, usize)> = HashSet::new();
@@ -723,7 +668,7 @@ fn build_scene(
                 let fwd_edge = graph.edges.len();
                 let wave_mat = waves.add(DendriteMaterial {
                     color: LinearRgba::new(nr, ng, nb, 1.0),
-                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, DEND_PULSE_EMISSIVE),
+                    rest: Vec4::new(RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_PULSE_EMISSIVE),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
@@ -733,27 +678,6 @@ fn build_scene(
                     ConnectionWave { channel: channel_count, fwd_edge, mat: wave_mat },
                     SceneItem,
                 ));
-                // Additive glow dot at each junction — light compounds where roots meet the surface.
-                for jp in [a, b] {
-                    commands.spawn((
-                        Mesh3d(halo_quad.clone()),
-                        MeshMaterial3d(bead_mat.clone()),
-                        Transform::from_translation(jp).with_scale(Vec3::splat(JUNCTION_GLOW)),
-                        Billboard,
-                        SceneItem,
-                    ));
-                }
-                // Beads of light strung along the filament (a signature of the reference images).
-                for bt in [0.25f32, 0.5, 0.75] {
-                    commands.spawn((
-                        Mesh3d(halo_quad.clone()),
-                        MeshMaterial3d(bead_mat.clone()),
-                        Transform::from_translation(sample_path(&curve, bt))
-                            .with_scale(Vec3::splat(0.55)),
-                        Billboard,
-                        SceneItem,
-                    ));
-                }
                 wire(&mut graph, idxs[i], idxs[j], channel_count);
                 channel_count += 1;
             }

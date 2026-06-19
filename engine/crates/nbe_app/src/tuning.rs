@@ -49,6 +49,15 @@ pub(crate) const RIM_INTENSITY: f32 = 1.6;
 pub(crate) const RIM_ALPHA: f32 = 0.68;
 
 // ---- volumetric tube material (soma-glass membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial)
+// The tubes use the soma's Fresnel formula but with their OWN rim intensity/alpha: a thin tube is
+// "all rim" (no broad camera-facing face like the big soma sphere), so at the soma's full RIM_INTENSITY
+// it reads as a bright solid bar. Dimmed + more transparent here so a thin tube reads as a soft
+// translucent glass line — the soma's *surface* look at a tube's apparent brightness. (RIM_POWER is
+// still shared.) Raise toward the soma's RIM_INTENSITY(1.6)/RIM_ALPHA(0.68) for brighter/solider tubes.
+/// Tube rim glow brightness (vs the soma's RIM_INTENSITY 1.6).
+pub(crate) const TUBE_RIM_INTENSITY: f32 = 0.9;
+/// Tube rim opacity (vs the soma's RIM_ALPHA 0.68) — lower = more see-through glass.
+pub(crate) const TUBE_RIM_ALPHA: f32 = 0.45;
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
 /// Drop if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
@@ -82,9 +91,6 @@ pub(crate) const ROOT_FLARE_POW: f32 = 2.6;
 /// the surface so connectors attach to the *clear membrane shell* and flow out from there — not dive
 /// down into the glowing core. Slightly under 1.0 so the flared base fuses into the shell, no gap.
 pub(crate) const ROOT_EMBED: f32 = 0.92;
-/// Billboard scale of the additive glow dot placed at each filament→soma junction (Target 3 —
-/// light compounds where roots meet the surface). Slightly larger than the mid-filament beads.
-pub(crate) const JUNCTION_GLOW: f32 = 0.85;
 
 // ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
 /// Where a dendrite trunk begins, as a fraction of the soma radius — matched to SOMA_BASE so the

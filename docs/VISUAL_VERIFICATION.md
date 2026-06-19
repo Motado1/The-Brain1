@@ -13,7 +13,14 @@ compiles + clippy clean; the look needs the owner's GPU.**
       brightness as the soma membrane. They will be dimmer than the soma *body* (no inner nucleus glow
       — owner accepted this).
 - [ ] **Not too thick** — trunks `DEND_ROOT_R` 0.05, connector mouths `ROOT_FLARE` 0.03. If still too
-      fat/solid up close, lower these and/or **`RIM_ALPHA`** (more transparent centre).
+      fat/solid up close, lower these and/or **`TUBE_RIM_ALPHA`** (more transparent centre).
+- [ ] **Beads removed** — the bright 2.6×-HDR additive "beads of light" + junction glows that used to
+      sit on every connection are gone (the soma's membrane has none); the connection is now just the
+      glass tube. Also deleted the dead unused `themes` membrane/edge/dendrite materials.
+- [ ] **Tube rim decoupled + dimmed from the soma** — a thin tube is "all rim", so at the soma's full
+      `RIM_INTENSITY` it read as a bright solid bar. Tubes now use `TUBE_RIM_INTENSITY` 0.9 /
+      `TUBE_RIM_ALPHA` 0.45 (vs soma 1.6 / 0.68) → a soft translucent glass line. Raise toward the
+      soma values for brighter/solider tubes; the soma is unaffected.
 - [ ] **Pulse still floods light along the tube** (data pulse on connectors; firing surge root→tip on
       dendrites) — timing/cooldown unchanged, only the resting look.
 - [ ] **⚠ runtime WGSL (naga on GPU)** — if tubes render pink/black/invisible, send the console error.
