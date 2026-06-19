@@ -1,6 +1,27 @@
 # Pending visual / interaction verification
 
-## 🟡 VERIFY NEXT — connections wear the SOMA'S GLASS MEMBRANE (identical to the cell body) (2026-06-19)
+## 🟡 VERIFY NEXT — connections as ORGANIC biological processes (thin, bumpy, alive) (2026-06-19)
+Owner spec (after glass-tube + glowing-core were both rejected): forget matching the soma exactly —
+the connections should just look like **real, alive, organic** neural processes (like the thin
+branching dendrite trees already do). The artificial part was the connectors: fat, smooth, straight
+rods. Fixes: connectors now use the **same bumpy organic membrane skin as the dendrites**
+(`bumped_tube_mesh`, 10-sided, `DEND_BUMP_*`), and ALL primary processes thinned to branch-like widths
+(`DEND_ROOT_R` 0.05→0.028, `ROOT_FLARE` 0.03→0.022, `CONN_BODY` 0.025→0.018, connector floor
+0.03→0.018) — a thick tube reads as a solid bar; a thin one reads as a living filament. Removed dead
+`tube_mesh`. **Built blind — compiles + clippy clean; needs the owner's GPU.**
+- [ ] **Connectors read as organic living tissue** — thin, bumpy/irregular, tapering filaments like the
+      dendrite branches, NOT fat smooth orange rods. Compare a connector to a nearby dendrite branch:
+      they should look like the same kind of process.
+- [ ] **No fat solid bars** near the soma. If any process still reads as a solid bar up close, thin it
+      more: `DEND_ROOT_R` (trunks), `ROOT_FLARE` / `CONN_BODY` (connectors) in `tuning.rs`.
+- [ ] **Still glows + pulses** — thin organic filaments that glow softly and flood with light on a pulse.
+- Knobs (`tuning.rs`): `DEND_ROOT_R` / `ROOT_FLARE` / `CONN_BODY` (thinness), `DEND_BUMP_REL` /
+  `DEND_BUMP_FREQ` (organic surface lumpiness, shared by dendrites + connectors), `TUBE_RIM_INTENSITY`
+  / `TUBE_RIM_ALPHA` (glow/transparency), `Bloom.intensity` in `scene.rs` `spawn_camera`.
+
+<details><summary>earlier: tried matching the soma's glass membrane exactly (superseded)</summary>
+
+## 🟡 connections wear the SOMA'S GLASS MEMBRANE (identical to the cell body) (2026-06-19)
 Owner spec (after the additive attempt read as flat opaque bars): the connections should look
 **identical to the soma's surface** — a clear, see-through translucent membrane with a glowing Fresnel
 rim — NOT additive light strands (additive adds light, can never be see-through). So `DendriteMaterial`
@@ -29,6 +50,7 @@ compiles + clippy clean; the look needs the owner's GPU.**
   (pulse flood), `ROOT_FLARE` / `CONN_BODY` / `DEND_ROOT_R` (tube thinness);
   `Bloom.intensity` in `scene.rs` `spawn_camera`. (Note: tubes now share the soma's RIM_* — changing
   them changes both. Old per-row note about `color.a` profile flag no longer applies.)
+</details>
 
 ## ⏳⏳⏳ NEWEST — `DendriteMaterial`: hollow membrane that fills with light on pulse
 Rework (owner spec): ONE color-agnostic volumetric tube material for connectors + dendrites. At rest

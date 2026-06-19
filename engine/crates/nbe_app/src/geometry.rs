@@ -262,10 +262,23 @@ impl TubeBuilder {
     }
 }
 
-/// Single tapered tube as its own mesh.
-pub(crate) fn tube_mesh(points: &[Vec3], radii: &[f32], sides: usize) -> Mesh {
+/// Tube mesh with the organic bumpy membrane skin of the dendrites (`add_bumped`), so
+/// a connector reads as a living biological process, not a smooth machined rod. `uv.x` runs 0→1 along
+/// the length (for the travelling pulse wave); `bump_rel`/`freq`/`seed` match the dendrite skin.
+pub(crate) fn bumped_tube_mesh(
+    points: &[Vec3],
+    radii: &[f32],
+    sides: usize,
+    bump_rel: f32,
+    freq: f32,
+    seed: f32,
+) -> Mesh {
     let mut b = TubeBuilder::default();
-    b.add(points, radii, sides);
+    let rings = points.len();
+    let u: Vec<f32> = (0..rings)
+        .map(|ri| ri as f32 / (rings - 1).max(1) as f32)
+        .collect();
+    b.add_bumped(points, radii, sides, &u, bump_rel, freq, seed);
     b.build()
 }
 
@@ -292,7 +305,7 @@ pub(crate) fn connector_radii(
             let mouth = if t < 0.5 { mouth_a } else { mouth_b };
             let edge = t.min(1.0 - t); // 0 at either end, 0.5 at the middle
             let k = (edge / zone.max(1e-3)).min(1.0); // 0 at the end → 1 once past the funnel
-            (body + (mouth - body) * (1.0 - k).powf(pow)).max(0.03)
+            (body + (mouth - body) * (1.0 - k).powf(pow)).max(0.018)
         })
         .collect()
 }

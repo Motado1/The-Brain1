@@ -79,10 +79,10 @@ pub(crate) const SOMA_PROCESS_TIGHTNESS: f32 = 3.0;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
-pub(crate) const ROOT_FLARE: f32 = 0.03;
+pub(crate) const ROOT_FLARE: f32 = 0.022;
 /// Slender connector body radius (absolute) between the two funnels — the tunnel itself. Kept very
 /// thin so the additive strand reads as a glowing *line* (thin twigs already read right today).
-pub(crate) const CONN_BODY: f32 = 0.025;
+pub(crate) const CONN_BODY: f32 = 0.018;
 /// Fraction of a connector's length each end funnel occupies (the rest is the slender tunnel body).
 pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
@@ -101,7 +101,7 @@ pub(crate) const DEND_EMBED: f32 = 0.8;
 /// mostly camera-facing surface, so the additive core lights its whole width and reads as a solid
 /// shaded band up close (the old glass-tube fat sizing). Thin trunks read as glowing lines like the
 /// twigs. Raise if the close-up trunks look too spindly; lower if they read as solid tubes.
-pub(crate) const DEND_ROOT_R: f32 = 0.05;
+pub(crate) const DEND_ROOT_R: f32 = 0.028;
 /// Concavity of the trunk's base→tip taper (>1 = stays thin along its length but flares sharply at
 /// the soma, the tree-branch fillet). 1.0 would be a plain cone.
 pub(crate) const DEND_ROOT_TAPER_POW: f32 = 2.6;
