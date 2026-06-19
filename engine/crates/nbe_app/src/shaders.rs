@@ -30,18 +30,16 @@ impl Material for SomaMaterial {
     }
 }
 
-/// Color-agnostic ADDITIVE glowing-filament material (connectors + dendrites): a thin emissive light
-/// strand (bright camera-facing core, length-modulated brightness) that the travelling pulse floods
-/// with light. Rendered with `AlphaMode::Add` so strands glow and never occlude/stack to opaque —
-/// the reference-image look, and the structural fix for the old "solid cylinder" tubes. Per-tube
-/// instance so each carries its own wave timeline uniform. See pulse_wave.wgsl.
+/// The connectors + dendrites wear the EXACT SAME glass cell-wall as the soma (soma.wgsl): a clear
+/// translucent membrane with a glowing Fresnel rim, rendered `AlphaMode::Blend` so they read as the
+/// same see-through glass as the cell body (additive can't be see-through). A travelling pulse floods
+/// the tube with light where it passes. Per-tube instance so each carries its own wave uniform.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
 pub(crate) struct DendriteMaterial {
-    /// rgb = base colour (network hue: amber CRM / indigo Research); a = profile flag
-    /// (>=0.5 dendrite root→tip taper, <0.5 connector bright-at-both-ends).
+    /// rgb = base colour (network hue: amber CRM / indigo Research), a unused.
     #[uniform(0)]
     pub(crate) color: LinearRgba,
-    /// x = core power (camera-facing softness), y = resting glow, z = length-profile floor,
+    /// x = rim power, y = rim intensity, z = rim alpha (all matched to the soma's RIM_*),
     /// w = pulse emissive (massive, the travelling flood).
     #[uniform(1)]
     pub(crate) rest: Vec4,
@@ -55,7 +53,7 @@ impl Material for DendriteMaterial {
         ShaderRef::Handle(PULSE_WAVE_SHADER)
     }
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Add
+        AlphaMode::Blend
     }
 }
 

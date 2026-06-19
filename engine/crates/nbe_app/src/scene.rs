@@ -616,19 +616,14 @@ fn build_scene(
                 if let Some(an) = anatomy.get(id) {
                     embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
                 }
-                // One additive glowing-filament tube (network hue, so CRM/Research adapt
-                // automatically). It rests as a thin glowing strand, brightest at the soma root and
-                // dimming to the tips (color.a = 1.0 → dendrite profile), and floods with light where
-                // the firing surge passes (DendriteWave drives the wave).
+                // One volumetric tube wearing the SAME soma-glass membrane (network hue, so CRM/Research
+                // adapt automatically): a clear see-through cell-wall with a glowing Fresnel rim,
+                // identical to the cell body. It floods with light where the firing surge passes
+                // (DendriteWave drives the wave).
                 let (dr, dg, db) = theme_rgb(network);
                 let dend_mat = waves.add(DendriteMaterial {
-                    color: LinearRgba::new(dr, dg, db, 1.0), // a = 1.0 → dendrite (root→tip taper)
-                    rest: Vec4::new(
-                        FILAMENT_RIM_POWER,
-                        FILAMENT_GLOW,
-                        FILAMENT_TIP_FLOOR,
-                        DEND_PULSE_EMISSIVE,
-                    ),
+                    color: LinearRgba::new(dr, dg, db, 1.0),
+                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, DEND_PULSE_EMISSIVE),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((
@@ -722,19 +717,13 @@ fn build_scene(
                     ROOT_FLARE_ZONE,
                     ROOT_FLARE_POW,
                 );
-                // Unified additive glowing-filament material (same as the dendrites) that also carries
-                // the travelling pulse wave. color.a = 0.0 → connector profile (bright at both soma
-                // ends, dim mid-span). `fwd_edge` = the i→j directed edge wire() is about to push, so
-                // the wave system can orient a pulse's `t` to this tube's uv.x.
+                // Same soma-glass membrane as the dendrites (clear cell-wall + glowing rim) that also
+                // carries the travelling pulse wave. `fwd_edge` = the i→j directed edge wire() is about
+                // to push, so the wave system can orient a pulse's `t` to this tube's uv.x.
                 let fwd_edge = graph.edges.len();
                 let wave_mat = waves.add(DendriteMaterial {
-                    color: LinearRgba::new(nr, ng, nb, 0.0), // a = 0.0 → connector (bright at both ends)
-                    rest: Vec4::new(
-                        FILAMENT_RIM_POWER,
-                        FILAMENT_GLOW,
-                        FILAMENT_MID_FLOOR,
-                        DEND_PULSE_EMISSIVE,
-                    ),
+                    color: LinearRgba::new(nr, ng, nb, 1.0),
+                    rest: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, DEND_PULSE_EMISSIVE),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
                 });
                 commands.spawn((

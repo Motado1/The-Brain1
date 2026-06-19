@@ -1,32 +1,27 @@
 # Pending visual / interaction verification
 
-## 🟡 VERIFY NEXT — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
-The "tubes render SOLID" blocker was addressed by **starting the connections over**: dropped the
-translucent-glass-tube model (which fought a geometry-driven fill — a cylinder is almost all
-grazing-angle, so Fresnel filled it) for **thin additive emissive light strands** matching the
-reference images. `DendriteMaterial` is now `AlphaMode::Add`; `pulse_wave.wgsl` lights the
-camera-facing core (not a rim) and modulates brightness along the length; the pulse floods on top.
-Soma untouched. **Built blind — compiles + clippy clean; the look needs the owner's GPU.**
-- [ ] **Dormant strands read like the soma membrane** — a clear see-through centre with a glowing
-      Fresnel-rim outline (the same glass cell-wall as the soma), NOT a solid bright core. The
-      travelling pulse then floods the strand bright. (Shader now uses `pow(1-facing)` rim, matched to
-      the soma's `RIM_POWER`; geometry is thin so the rim reads as a clean outline, not a fill.)
-- [ ] **Connections read as thin glowing light strands** (NOT solid cylinders) — faintly lit at rest,
-      brightest near the cell bodies, fading along their length. Compare to the 4 reference images.
-- [ ] **Dendrite trunks are thin** (DEND_ROOT_R 0.07) — primary processes read as glowing lines like
-      the fine twigs up close, not fat shaded tubes. Raise toward 0.10 if too spindly.
-- [ ] **Dendrites taper root→tip** (bright where they leave the soma, hair-dim at the tips).
-- [ ] **Connectors are bright at both soma ends, dimmer mid-span.**
-- [ ] **Pulse still floods light along the strand** (data pulse on connectors; firing surge root→tip
-      on dendrites) — the timing/cooldown is unchanged, only the resting look.
-- [ ] **No solid/opaque fill and no pale bloom blow-out.** If strands wash to pale, drop
-      `FILAMENT_GLOW` first, then `DEND_PULSE_EMISSIVE`, then `Bloom.intensity` (0.3 → 0.18–0.22).
-- [ ] **⚠ runtime WGSL (naga on GPU)** — if strands render pink/black/invisible, send the console error.
-- Knobs (`tuning.rs`): `FILAMENT_CORE_POWER` (core softness — lower = broader glow), `FILAMENT_GLOW`
-  (resting brightness), `FILAMENT_TIP_FLOOR` / `FILAMENT_MID_FLOOR` (length-profile floors),
-  `DEND_PULSE_EMISSIVE` (pulse flood), `ROOT_FLARE` / `CONN_BODY` / `DEND_ROOT_R` (strand thinness);
-  `Bloom.intensity` in `scene.rs` `spawn_camera`. Profile is selected by `color.a` at the spawn sites
-  (`scene.rs` dendrite ~623 a=1.0, connector ~728 a=0.0).
+## 🟡 VERIFY NEXT — connections wear the SOMA'S GLASS MEMBRANE (identical to the cell body) (2026-06-19)
+Owner spec (after the additive attempt read as flat opaque bars): the connections should look
+**identical to the soma's surface** — a clear, see-through translucent membrane with a glowing Fresnel
+rim — NOT additive light strands (additive adds light, can never be see-through). So `DendriteMaterial`
+is back to `AlphaMode::Blend` and `pulse_wave.wgsl` now uses the EXACT soma formula + the soma's
+`RIM_POWER/RIM_INTENSITY/RIM_ALPHA` constants; the travelling pulse still floods the tube. Geometry
+thinned further (a thin tube reads as glass; a fat one reads as a solid band up close). **Built blind —
+compiles + clippy clean; the look needs the owner's GPU.**
+- [ ] **Connections look identical to the soma** — clear see-through centre (you can see neurons
+      *through* them like you can through the soma sphere) with the same glowing rim, same colour and
+      brightness as the soma membrane. They will be dimmer than the soma *body* (no inner nucleus glow
+      — owner accepted this).
+- [ ] **Not too thick** — trunks `DEND_ROOT_R` 0.05, connector mouths `ROOT_FLARE` 0.03. If still too
+      fat/solid up close, lower these and/or **`RIM_ALPHA`** (more transparent centre).
+- [ ] **Pulse still floods light along the tube** (data pulse on connectors; firing surge root→tip on
+      dendrites) — timing/cooldown unchanged, only the resting look.
+- [ ] **⚠ runtime WGSL (naga on GPU)** — if tubes render pink/black/invisible, send the console error.
+- Knobs (`tuning.rs`): **`RIM_ALPHA`** (transparency — lower = more see-through; shared with the soma),
+  `RIM_POWER`/`RIM_INTENSITY` (rim sharpness/brightness, shared with the soma), `DEND_PULSE_EMISSIVE`
+  (pulse flood), `ROOT_FLARE` / `CONN_BODY` / `DEND_ROOT_R` (tube thinness);
+  `Bloom.intensity` in `scene.rs` `spawn_camera`. (Note: tubes now share the soma's RIM_* — changing
+  them changes both. Old per-row note about `color.a` profile flag no longer applies.)
 
 ## ⏳⏳⏳ NEWEST — `DendriteMaterial`: hollow membrane that fills with light on pulse
 Rework (owner spec): ONE color-agnostic volumetric tube material for connectors + dendrites. At rest
