@@ -610,22 +610,42 @@ fn build_scene(
                 if let Some(an) = anatomy.get(id) {
                     embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
                 }
-                // One volumetric tube wearing the SAME soma-glass membrane (network hue, so CRM/Research
+                // Volumetric tubes wearing the SAME soma-glass membrane (network hue, so CRM/Research
                 // adapt automatically): a clear see-through cell-wall with a glowing Fresnel rim,
-                // identical to the cell body. It floods with light where the firing surge passes
-                // (DendriteWave drives the wave).
+                // identical to the cell body. They flood with light where the firing surge passes.
+                // Split into two LOD tiers: the trunk limbs (always drawn) and the finer fractal
+                // thicket (faded/culled by distance). Each tier carries its own material + its own
+                // `DendriteWave` keyed to the same soma, so one firing sweeps both continuously while
+                // the fine tier's alpha can be faded independently (`apply_dendrite_lod`).
                 let (dr, dg, db) = theme_rgb(network);
-                let dend_mat = waves.add(DendriteMaterial {
-                    color: LinearRgba::new(dr, dg, db, 1.0),
-                    rest: Vec4::new(RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_PULSE_EMISSIVE),
-                    wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
-                });
+                let mk_mat = |waves: &mut Assets<DendriteMaterial>| {
+                    waves.add(DendriteMaterial {
+                        color: LinearRgba::new(dr, dg, db, 1.0),
+                        rest: Vec4::new(
+                            RIM_POWER,
+                            TUBE_RIM_INTENSITY,
+                            TUBE_RIM_ALPHA,
+                            DEND_PULSE_EMISSIVE,
+                        ),
+                        wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
+                    })
+                };
+                let trunk_mat = mk_mat(waves);
                 commands.spawn((
-                    Mesh3d(meshes.add(tree.mesh)),
-                    MeshMaterial3d(dend_mat.clone()),
+                    Mesh3d(meshes.add(tree.trunk_mesh)),
+                    MeshMaterial3d(trunk_mat.clone()),
                     Transform::default(),
                     // Start past the tip so it's idle until the soma first fires.
-                    DendriteWave { soma: node, mat: dend_mat, t: 99.0, prev_intensity: 0.0 },
+                    DendriteWave { soma: node, mat: trunk_mat, t: 99.0, prev_intensity: 0.0 },
+                    SceneItem,
+                ));
+                let fine_mat = mk_mat(waves);
+                commands.spawn((
+                    Mesh3d(meshes.add(tree.fine_mesh)),
+                    MeshMaterial3d(fine_mat.clone()),
+                    Transform::default(),
+                    DendriteWave { soma: node, mat: fine_mat.clone(), t: 99.0, prev_intensity: 0.0 },
+                    DendriteFine { mat: fine_mat, start: DEND_LOD_START, full: DEND_LOD_FULL },
                     SceneItem,
                 ));
             }

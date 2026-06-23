@@ -5,9 +5,10 @@
 
 use bevy::prelude::*;
 
-use crate::components::{LodReveal, OrbitCamera};
+use crate::components::{DendriteFine, LodReveal, OrbitCamera};
 use crate::nav::NodeRegistry;
-use crate::tuning::{LOD_GALACTIC_DIST, LOD_MICRO_DIST};
+use crate::shaders::DendriteMaterial;
+use crate::tuning::{LOD_GALACTIC_DIST, LOD_MICRO_DIST, TUBE_RIM_ALPHA};
 
 /// Continuous detail factor in `[0,1]` from a camera→target distance: `1` at/under `micro` (deep
 /// focus), `0` at/beyond `galactic` (zoomed out), **cubic-smoothstepped** between so tiers ease in
@@ -107,6 +108,41 @@ pub(crate) fn apply_lod_reveal(
     }
 }
 
+/// Cubic-smoothed reveal weight in `[0,1]` for a `[start, full]` window on the zoom detail — `0` at/
+/// below `start`, `1` at/above `full`, eased between. Shared by the dendrite + (conceptually) the
+/// anatomy reveals so the macro→micro transition is one consistent ease.
+pub(crate) fn reveal_weight(zoom: f32, start: f32, full: f32) -> f32 {
+    if full <= start {
+        return if zoom >= full { 1.0 } else { 0.0 };
+    }
+    let u = ((zoom - start) / (full - start)).clamp(0.0, 1.0);
+    u * u * (3.0 - 2.0 * u)
+}
+
+/// Reveal the finer-dendrite tier by global zoom: fade its membrane rim alpha `0 → full` across each
+/// branch's `[start, full]` window and fully hide it below `start`, so the galactic view is clean
+/// trunks-only and the fractal thicket blooms back in on approach. The trunk tier is a separate,
+/// always-drawn mesh and is untouched. Pairs with `drive_dendrite_waves` (which writes the firing
+/// surge into `wave`) — this only touches `rest.z`, so the two never fight.
+pub(crate) fn apply_dendrite_lod(
+    lod: Res<LodState>,
+    mut mats: ResMut<Assets<DendriteMaterial>>,
+    mut q: Query<(&DendriteFine, &mut Visibility)>,
+) {
+    for (fine, mut vis) in &mut q {
+        let t = reveal_weight(lod.zoom, fine.start, fine.full);
+        if let Some(m) = mats.get_mut(&fine.mat) {
+            m.rest.z = TUBE_RIM_ALPHA * t;
+        }
+        // Cull entirely once imperceptible — skips its draw cost galactic and beats the shader's small
+        // baseline-alpha floor (and any in-flight firing flash) so the thicket truly vanishes.
+        let want = if t < 0.02 { Visibility::Hidden } else { Visibility::Inherited };
+        if *vis != want {
+            *vis = want;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +162,26 @@ mod tests {
             let d = micro + (gal - micro) * (k as f32 / 20.0);
             let v = detail_for_distance(d, micro, gal);
             assert!(v <= prev + 1e-6, "detail must not increase with distance");
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn fine_dendrites_reveal_across_their_window() {
+        // Below `start` → fully culled (0); at/above `full` → fully present (1); strictly rising and
+        // smooth (midpoint = 0.5) between, so the thicket eases in on approach instead of popping.
+        let (start, full) = (0.30, 0.62);
+        assert_eq!(reveal_weight(0.0, start, full), 0.0, "galactic = no fine branches");
+        assert_eq!(reveal_weight(start, start, full), 0.0);
+        assert_eq!(reveal_weight(0.2, start, full), 0.0, "below start stays culled");
+        assert_eq!(reveal_weight(1.0, start, full), 1.0, "micro = full thicket");
+        assert_eq!(reveal_weight(full, start, full), 1.0);
+        assert!((reveal_weight((start + full) / 2.0, start, full) - 0.5).abs() < 1e-5);
+        let mut prev = -0.1;
+        for k in 0..=20 {
+            let z = k as f32 / 20.0;
+            let v = reveal_weight(z, start, full);
+            assert!(v + 1e-6 >= prev, "reveal must rise with zoom-in");
             prev = v;
         }
     }

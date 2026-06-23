@@ -349,12 +349,15 @@ pub(crate) struct DendriteBranch {
     pub(crate) leaf: bool,
 }
 
-/// A dendrite tree: the merged tube `mesh` plus the `branches` it was built from (for embedding
+/// A dendrite tree, split into two LOD tiers plus the `branches` it was built from (for embedding
 /// session beads along segments and package/research twigs at the tips).
 pub(crate) struct DendriteTree {
-    /// The merged volumetric tube mesh — a single bumpy `DendriteMaterial` cell-wall whose membrane
-    /// fills with light where the firing surge passes (no separate inner wire).
-    pub(crate) mesh: Mesh,
+    /// The **trunk** tubes (depth 0) — the wide limbs straight off the soma. Always drawn, even in
+    /// the galactic view, so a zoomed-out brain reads as glowing somas joined by clean limbs.
+    pub(crate) trunk_mesh: Mesh,
+    /// The **finer** branches (depth ≥ 1) — the fractal thicket, split out so `apply_dendrite_lod`
+    /// can fade/cull it by distance (hidden galactic, blooming in on approach).
+    pub(crate) fine_mesh: Mesh,
     pub(crate) branches: Vec<DendriteBranch>,
 }
 
@@ -362,7 +365,11 @@ pub(crate) struct DendriteTree {
 /// and the branch polylines (so data anatomy can be embedded onto them — see `anatomy.rs`).
 pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) -> DendriteTree {
     let mut s = seed | 1;
-    let mut builder = TubeBuilder::default(); // the single bumpy volumetric tube
+    // Two builders so the trunks (depth 0) and the finer branches (depth ≥ 1) become separate meshes
+    // that LOD can reveal independently — they still share one continuous uv (normalised by the same
+    // `max_u` below) so a single firing wave sweeps root→tip across both in spatial order.
+    let mut trunk = TubeBuilder::default();
+    let mut fine = TubeBuilder::default();
     let mut branches: Vec<DendriteBranch> = Vec::new();
     // Track the farthest reach (absolute arc-length from the soma) so uv.x can be normalised 0→1
     // across the whole tree afterwards — one wave then sweeps root→tip in spatial order.
@@ -377,7 +384,8 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
         // root fuses with the cell body, then tapers and branches out into a fractal tree.
         let start = node + dir * node_r * crate::tuning::DEND_EMBED;
         grow_dendrite(
-            &mut builder,
+            &mut trunk,
+            &mut fine,
             &mut branches,
             &mut s,
             start,
@@ -390,8 +398,9 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
             seed as f32 * 0.618_034,
         );
     }
-    builder.normalize_u(max_u);
-    DendriteTree { mesh: builder.build(), branches }
+    trunk.normalize_u(max_u);
+    fine.normalize_u(max_u);
+    DendriteTree { trunk_mesh: trunk.build(), fine_mesh: fine.build(), branches }
 }
 
 /// Recursively grow one tapering dendrite branch, then (until the depth budget runs out) split it
@@ -400,7 +409,8 @@ pub(crate) fn dendrite_tree(node: Vec3, count: usize, node_r: f32, seed: u64) ->
 /// (thick trunk → hair-thin twigs). Each segment's polyline is recorded into `branches`.
 #[allow(clippy::too_many_arguments)]
 fn grow_dendrite(
-    builder: &mut TubeBuilder,
+    trunk: &mut TubeBuilder,
+    fine: &mut TubeBuilder,
     branches: &mut Vec<DendriteBranch>,
     s: &mut u64,
     start: Vec3,
@@ -416,8 +426,8 @@ fn grow_dendrite(
     let r1 = if leaf { 0.012 } else { r0 * crate::tuning::DEND_BRANCH_TAPER };
     // The trunk (depth 0) gets extra base rings + a concave taper so it flares smoothly out of the
     // soma like a limb off a trunk; deeper branches are short and taper linearly.
-    let trunk = depth == 0;
-    let segs = (if trunk { 4 } else { 2 }) + (lcg(s) * 2.0) as usize;
+    let trunk_seg = depth == 0;
+    let segs = (if trunk_seg { 4 } else { 2 }) + (lcg(s) * 2.0) as usize;
     let seg_len = node_r * (0.7 + lcg(s) * 0.7) / (1.0 + depth as f32 * 0.5);
     let mut p = start;
     let mut pts = vec![p];
@@ -425,12 +435,12 @@ fn grow_dendrite(
         let j = Vec3::new(lcg(s) - 0.5, lcg(s) - 0.5, lcg(s) - 0.5) * 0.5;
         dir = (dir + j).normalize_or_zero();
         // Short first steps on the trunk so the base flare has resolution; then full strides.
-        let step = if trunk && i < 2 { seg_len * 0.35 } else { seg_len };
+        let step = if trunk_seg && i < 2 { seg_len * 0.35 } else { seg_len };
         p += dir * step;
         pts.push(p);
     }
     let n = pts.len();
-    let pow = if trunk { crate::tuning::DEND_ROOT_TAPER_POW } else { 1.0 };
+    let pow = if trunk_seg { crate::tuning::DEND_ROOT_TAPER_POW } else { 1.0 };
     let radii: Vec<f32> = (0..n)
         .map(|i| {
             let t = i as f32 / (n - 1) as f32;
@@ -447,16 +457,20 @@ fn grow_dendrite(
     *max_u = max_u.max(dist[n - 1]);
     // A thick volumetric tube whose surface is perturbed by the same organic noise as the soma
     // (proportional to local radius, so thin twigs aren't shredded) — the membrane skin continues
-    // across the fusion point. 10-sided for a smooth round cross-section.
-    builder.add_bumped(
-        &pts,
-        &radii,
-        10,
-        &dist,
-        crate::tuning::DEND_BUMP_REL,
-        crate::tuning::DEND_BUMP_FREQ,
-        noise_seed,
-    );
+    // across the fusion point. 10-sided for a smooth round cross-section. Trunks (depth 0) go in the
+    // always-drawn mesh; the finer branches go in the LOD-revealed mesh.
+    {
+        let builder: &mut TubeBuilder = if trunk_seg { trunk } else { fine };
+        builder.add_bumped(
+            &pts,
+            &radii,
+            10,
+            &dist,
+            crate::tuning::DEND_BUMP_REL,
+            crate::tuning::DEND_BUMP_FREQ,
+            noise_seed,
+        );
+    }
     branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
@@ -467,7 +481,8 @@ fn grow_dendrite(
                 cdir = dir;
             }
             grow_dendrite(
-                builder,
+                trunk,
+                fine,
                 branches,
                 s,
                 p,
@@ -616,18 +631,24 @@ mod tests {
     #[test]
     fn dendrites_branch_into_a_tree() {
         // A branching tree yields many branch polylines (trunks + recursive children) and far more
-        // vertices than the trunk count alone; every position is finite. Deterministic per seed.
+        // vertices than the trunk count alone; every position is finite. Deterministic per seed. The
+        // geometry is split into a trunk tier (depth 0) and a fine tier (depth ≥ 1); both carry verts.
         let tree = dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD);
         assert!(tree.branches.len() > 5, "trunks should split into children: {}", tree.branches.len());
         assert!(tree.branches.iter().any(|b| b.leaf), "tree has leaf tips");
-        let n = vertex_count(&tree.mesh);
-        assert!(n > 5 * 10, "expected a dense branched tree, got {n} verts");
-        if let Some(VertexAttributeValues::Float32x3(p)) = tree.mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        {
-            assert!(p.iter().flatten().all(|f| f.is_finite()), "all positions finite");
+        let (trunk_n, fine_n) = (vertex_count(&tree.trunk_mesh), vertex_count(&tree.fine_mesh));
+        assert!(trunk_n >= 5 * 10, "trunk tier should hold the 5 limbs, got {trunk_n} verts");
+        assert!(fine_n > trunk_n, "the fractal thicket should out-vert the trunks: {fine_n} vs {trunk_n}");
+        for mesh in [&tree.trunk_mesh, &tree.fine_mesh] {
+            if let Some(VertexAttributeValues::Float32x3(p)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            {
+                assert!(p.iter().flatten().all(|f| f.is_finite()), "all positions finite");
+            }
         }
         // Same seed → identical geometry (stable across reloads).
-        assert_eq!(n, vertex_count(&dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD).mesh));
+        let again = dendrite_tree(Vec3::ZERO, 5, 1.0, 0xABCD);
+        assert_eq!(trunk_n, vertex_count(&again.trunk_mesh));
+        assert_eq!(fine_n, vertex_count(&again.fine_mesh));
     }
 
     #[test]
@@ -637,12 +658,20 @@ mod tests {
         // (not each branch restarting at 0). Verticies near the soma centre have the smallest u.
         let node = Vec3::ZERO;
         let tree = dendrite_tree(node, 5, 1.0, 0x51CE);
-        let (Some(VertexAttributeValues::Float32x3(pos)), Some(VertexAttributeValues::Float32x2(uv))) = (
-            tree.mesh.attribute(Mesh::ATTRIBUTE_POSITION),
-            tree.mesh.attribute(Mesh::ATTRIBUTE_UV_0),
-        ) else {
-            panic!("expected position + uv attributes");
-        };
+        // The two tiers share one continuous uv (normalised by the same max_u), so check them together:
+        // roots (smallest u, in the trunk tier) start near 0, the farthest tip (in the fine tier) ≈ 1.
+        let mut pos: Vec<[f32; 3]> = Vec::new();
+        let mut uv: Vec<[f32; 2]> = Vec::new();
+        for mesh in [&tree.trunk_mesh, &tree.fine_mesh] {
+            let (Some(VertexAttributeValues::Float32x3(p)), Some(VertexAttributeValues::Float32x2(u))) = (
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+                mesh.attribute(Mesh::ATTRIBUTE_UV_0),
+            ) else {
+                panic!("expected position + uv attributes");
+            };
+            pos.extend_from_slice(p);
+            uv.extend_from_slice(u);
+        }
         let umin = uv.iter().map(|u| u[0]).fold(f32::INFINITY, f32::min);
         let umax = uv.iter().map(|u| u[0]).fold(f32::NEG_INFINITY, f32::max);
         assert!(umin >= 0.0, "u never negative, got {umin}");

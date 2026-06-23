@@ -139,6 +139,7 @@ fn main() {
                 orbit_camera,
                 compute_lod,
                 apply_lod_reveal,
+                apply_dendrite_lod,
                 update_dof,
                 face_camera,
                 update_hud,

@@ -148,6 +148,18 @@ pub(crate) struct DendriteWave {
     pub(crate) prev_intensity: f32,
 }
 
+/// The finer-dendrite tier (branches at depth ≥ 1) of a neuron, split off from the always-drawn
+/// trunks so it can be LOD-revealed: its membrane rim alpha fades `0 → full` as the global zoom
+/// detail crosses `[start, full]`, and it's fully culled (hidden) below `start` so the galactic view
+/// stays clean trunks-only and the fractal thicket blooms back in on approach. Driven by
+/// `lod::apply_dendrite_lod`; shares its soma's firing wave via its own `DendriteWave`.
+#[derive(Component)]
+pub(crate) struct DendriteFine {
+    pub(crate) mat: Handle<crate::shaders::DendriteMaterial>,
+    pub(crate) start: f32,
+    pub(crate) full: f32,
+}
+
 /// A data-anatomy element (session bead, package/research twig) that only materialises at close
 /// range: its rendered scale ramps `0 → base_scale` as the global LOD zoom-detail crosses
 /// `[start, full]` (cubic-smoothed), so the finest data nodes fade in on deep zoom instead of

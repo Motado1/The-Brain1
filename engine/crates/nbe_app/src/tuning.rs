@@ -129,3 +129,12 @@ pub(crate) const OMNI_FLY_RADIUS: f32 = 20.0;
 pub(crate) const LOD_MICRO_DIST: f32 = 60.0;
 /// Camera distance at/beyond which we're in **Galactic** view (somas + primary trunks only).
 pub(crate) const LOD_GALACTIC_DIST: f32 = 900.0;
+
+// Fine-dendrite reveal window on the global zoom detail (0 = galactic, 1 = micro): the finer branches
+// (depth ≥ 1) are fully culled below `START`, fade/bloom in across `START..FULL`, and are solid beyond.
+// The trunks (depth 0) are always drawn, so the galactic view stays clean limbs-only, and the fractal
+// thicket grows back in on approach. Tune from a screenshot alongside the MICRO/GALACTIC distances.
+/// Zoom detail at which the finer dendrites begin to appear (still galactic-ish below this).
+pub(crate) const DEND_LOD_START: f32 = 0.30;
+/// Zoom detail at which the finer dendrites are fully present.
+pub(crate) const DEND_LOD_FULL: f32 = 0.62;

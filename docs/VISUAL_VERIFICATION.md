@@ -1,5 +1,18 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — cosmic LOD: dendrite tier reveal (2026-06-23)
+Dendrites now split into a **trunk tier** (always drawn) and a **fine tier** (depth ≥ 1) that fades/
+culls by zoom. `apply_dendrite_lod` hides the fine thicket in the galactic view and blooms it back in
+on approach (rim-alpha ease `DEND_LOD_START..FULL` = 0.30..0.62 of global zoom; HUD shows band/zoom).
+- [ ] **Zoom way out** → each brain reads as glowing somas joined by clean **trunk limbs only**; the
+      fine fractal thicket is gone (not just faint — fully culled).
+- [ ] **Fly back in** → the finer branches smoothly bloom in (no hard pop), thicket fully present by
+      the Micro band.
+- [ ] **Firing still sweeps the whole tree** when zoomed in (both tiers share the surge — no seam at
+      the trunk→branch join, wave continuous root→tip).
+- [ ] Tune `DEND_LOD_START` / `DEND_LOD_FULL` (tuning.rs) if the reveal feels too early/late for the
+      scene scale.
+
 ## 🟢 NEW — Blender soma import pipeline (`assets/soma.glb`) (2026-06-19)
 The renderer now imports a Blender-authored cell body. Drop a `soma.glb` into
 `engine/crates/nbe_app/assets/` and re-run — no recompile. If the file is absent, the procedural

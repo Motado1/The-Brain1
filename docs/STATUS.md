@@ -54,11 +54,19 @@ is next (see below).**
   single source of truth. Dead branches `claude/claude-md-continuation-v10vu2`,
   `claude/neural-business-engine-arch-h7i8xj` (0 unique commits) deletable anytime.
 
-## ⏭ NEXT after the tube look is settled: cosmic **LOD** reveal
-LOD anchor exists (`lod.rs`: `compute_lod`, `LodState`, `apply_lod_reveal`, `LodReveal` on the embedded
-anatomy). NOT yet wired to bloom/cull dendrite detail by distance. Owner couldn't tell it was working —
-make the macro→micro reveal (trunks persist zoomed-out; branches + session/package anatomy bloom in on
-approach) clearly visible and verifiable.
+## ⏭ cosmic **LOD** reveal — dendrite tier reveal DONE (awaiting Windows eyes)
+LOD anchor (`lod.rs`: `compute_lod`, `LodState`, `apply_lod_reveal`, `LodReveal` on the embedded
+anatomy) is now **wired to cull/bloom dendrite detail by distance**:
+- `dendrite_tree` (geometry.rs) splits into a **trunk tier** (depth 0, always drawn) and a **fine
+  tier** (depth ≥ 1) as two meshes sharing one continuous uv. Scene spawns them as two entities, each
+  with its own `DendriteMaterial` + its own `DendriteWave` keyed to the same soma (so one firing
+  sweeps both continuously).
+- `lod::apply_dendrite_lod` fades the fine tier's rim alpha `0→full` across `DEND_LOD_START..FULL`
+  (0.30..0.62 of global zoom) and **hides it entirely below start** → galactic view = clean glowing
+  somas + trunk limbs; the fractal thicket blooms back in on approach. Tested (`reveal_weight`).
+- **Still open:** per the original fork note, the **screen-space min-size floor** (somas/specks stay
+  visible when far) and possibly tier-revealing the *anatomy beads* in the same ease. Owner should
+  confirm the dendrite reveal reads clearly on the RTX (HUD shows band/zoom). See VISUAL_VERIFICATION.
 
 <details><summary>earlier consolidation log (2026-06-18) — kept for reference</summary>
 
