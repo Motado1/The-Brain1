@@ -130,3 +130,15 @@ pub(crate) const LOD_GALACTIC_DIST: f32 = 900.0;
 pub(crate) const DEND_LOD_START: f32 = 0.30;
 /// Zoom detail at which the finer dendrites are fully present.
 pub(crate) const DEND_LOD_FULL: f32 = 0.62;
+
+// Profile "planet" nodes — the ~5 small aspect billboards at a client/note sun's dendrite tips.
+// Sized ~1:3 against a sun so the galaxy reads as suns-with-links until you fly in. They bloom in
+// *after* the dendrite thicket (START > DEND_LOD_START) and are hidden at galactic zoom.
+/// Base billboard scale of a planet nucleus (a present, mid-value aspect); ~⅓ of a sun.
+pub(crate) const PLANET_BASE: f32 = 0.30;
+/// Planet halo size relative to its nucleus (soft surrounding glow).
+pub(crate) const PLANET_HALO_REL: f32 = 2.2;
+/// Zoom detail at which planets begin to fade in (past the dendrite thicket reveal).
+pub(crate) const PLANET_LOD_START: f32 = 0.45;
+/// Zoom detail at which planets are fully present.
+pub(crate) const PLANET_LOD_FULL: f32 = 0.75;

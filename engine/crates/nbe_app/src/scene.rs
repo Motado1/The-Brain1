@@ -22,99 +22,117 @@ use crate::shaders::{DendriteMaterial, SomaMaterial};
 use crate::soma_assets::{pick_variant, SomaAssets};
 use crate::tuning::*;
 
-/// Pre-built additive glow materials for the data anatomy (one palette, reused for every neuron).
-struct AnatomyMats {
-    session_done: Handle<StandardMaterial>,
-    session_missed: Handle<StandardMaterial>,
-    package_active: Handle<StandardMaterial>,
-    package_done: Handle<StandardMaterial>,
-    research: Handle<StandardMaterial>,
+/// Shared additive glow palette for the profile **planets** — one material per `AspectKind` (10),
+/// reused for every sun in a network. Each is the network's theme hue blended toward a distinct
+/// per-aspect accent, so the ~5 planets around a sun read as separate facts while still belonging to
+/// the cluster's colour. Built once per network in `build_scene`.
+struct PlanetMats {
+    mats: [Handle<StandardMaterial>; 10],
 }
 
-impl AnatomyMats {
-    fn build(materials: &mut Assets<StandardMaterial>, glow: &Handle<Image>) -> Self {
-        let mut glow_mat = |rgb: LinearRgba| {
+impl PlanetMats {
+    fn build(
+        materials: &mut Assets<StandardMaterial>,
+        glow: &Handle<Image>,
+        base: (f32, f32, f32),
+    ) -> Self {
+        // Per-aspect accent hues (client five, then knowledge five), in `AspectKind::ALL` order.
+        const ACCENT: [(f32, f32, f32); 10] = [
+            (0.40, 1.00, 0.45), // Goals     — green
+            (0.85, 1.00, 0.30), // Diet      — lime
+            (1.00, 0.30, 0.25), // Injury    — red
+            (0.30, 0.90, 1.00), // Schedule  — cyan
+            (1.00, 0.85, 0.60), // Contact   — warm white
+            (0.40, 0.60, 1.00), // Body      — blue
+            (0.70, 0.40, 1.00), // Status    — violet
+            (1.00, 0.40, 0.90), // Mentions  — magenta
+            (0.30, 1.00, 0.80), // Topics    — teal
+            (1.00, 0.80, 0.30), // References— gold
+        ];
+        const BLEND: f32 = 0.4; // toward the accent
+        const BRIGHT: f32 = 1.5; // emissive boost for bloom
+        let (br, bg, bb) = base;
+        let mats = std::array::from_fn(|i| {
+            let (ar, ag, ab) = ACCENT[i];
+            let mix = |b: f32, a: f32| (b * (1.0 - BLEND) + a * BLEND) * BRIGHT;
             materials.add(StandardMaterial {
-                base_color: Color::LinearRgba(rgb),
+                base_color: Color::LinearRgba(LinearRgba::new(
+                    mix(br, ar),
+                    mix(bg, ag),
+                    mix(bb, ab),
+                    1.0,
+                )),
                 base_color_texture: Some(glow.clone()),
                 unlit: true,
                 alpha_mode: AlphaMode::Add,
                 cull_mode: None,
                 ..default()
             })
-        };
-        Self {
-            session_done: glow_mat(LinearRgba::new(1.6, 1.1, 0.4, 1.0)), // warm gold
-            session_missed: glow_mat(LinearRgba::new(1.4, 0.3, 0.2, 1.0)), // dim red (no-show/cancel)
-            package_active: glow_mat(LinearRgba::new(1.7, 1.2, 0.5, 1.0)), // bright amber
-            package_done: glow_mat(LinearRgba::new(0.5, 0.4, 0.3, 1.0)),  // spent/dim
-            research: glow_mat(LinearRgba::new(0.6, 0.5, 1.6, 1.0)),      // indigo (cross-domain)
-        }
+        });
+        Self { mats }
+    }
+
+    fn get(&self, kind: AspectKind) -> Handle<StandardMaterial> {
+        self.mats[kind.index()].clone()
     }
 }
 
-/// Weave a neuron's data anatomy directly onto its dendrite branches (no detached satellites):
-/// session logs become a sequential bead chain along the trunk segments; packages and cross-domain
-/// research proxies become terminal twigs at the branch tips. Every element carries a `LodReveal`
-/// so it only materialises on deep zoom (the Micro view).
-fn embed_anatomy(
+/// Weave a sun's profile **planets** onto its dendrite tips (no detached satellites): each of the
+/// fixed five `aspects` becomes a small billboard at a leaf tip, spread evenly across the available
+/// tips. Each carries a `LodReveal` so planets only bloom on deep zoom (Micro), and a `Planet`
+/// component (for M2 hover/select). Planets never join the sun-linking topology — they touch only
+/// their parent by construction.
+fn embed_planets(
     commands: &mut Commands,
     quad: &Handle<Mesh>,
-    mats: &AnatomyMats,
+    mats: &PlanetMats,
     branches: &[DendriteBranch],
     an: &Anatomy,
+    sun: Entity,
+    sun_r: f32,
 ) {
-    // Sessions: a chain of beads strung sequentially along the trunk branches (depth 0).
-    let trunks: Vec<&DendriteBranch> = branches.iter().filter(|b| b.depth == 0).collect();
-    if !trunks.is_empty() && !an.sessions.is_empty() {
-        let n = an.sessions.len().min(28);
-        let per_trunk = n.div_ceil(trunks.len());
-        for (k, st) in an.sessions.iter().take(n).enumerate() {
-            let trunk = trunks[k % trunks.len()];
-            let idx = k / trunks.len();
-            let t = (idx as f32 + 1.0) / (per_trunk as f32 + 1.0);
-            let pos = sample_path(&trunk.points, t);
-            let mat = match st {
-                SessionStatus::Completed => &mats.session_done,
-                _ => &mats.session_missed,
-            };
-            commands.spawn((
-                Mesh3d(quad.clone()),
-                MeshMaterial3d(mat.clone()),
-                Transform::from_translation(pos).with_scale(Vec3::ZERO),
-                Billboard,
-                LodReveal { base_scale: 0.45, start: 0.55, full: 0.85 },
-                SceneItem,
-            ));
-        }
-    }
-
-    // Terminal twigs at the leaf tips: packages first, then cross-domain research proxies.
     let tips: Vec<Vec3> = branches
         .iter()
         .filter(|b| b.leaf)
         .filter_map(|b| b.points.last().copied())
         .collect();
-    if !tips.is_empty() {
-        let mut ti = 0usize;
-        let mut place = |commands: &mut Commands, mat: &Handle<StandardMaterial>, scale: f32| {
-            let pos = tips[ti % tips.len()];
-            ti += 1;
+    if tips.is_empty() || an.aspects.is_empty() {
+        return;
+    }
+    let n = an.aspects.len();
+    // Keep planets well under the sun (suns ≫ planets) even for small somas.
+    let size = PLANET_BASE.min(sun_r * 0.5);
+    for (i, aspect) in an.aspects.iter().enumerate() {
+        let pos = tips[(i * tips.len() / n) % tips.len()];
+        let base_scale = if aspect.present {
+            size * (0.6 + 0.4 * aspect.value)
+        } else {
+            size * 0.35
+        };
+        // Nucleus — the planet's bright core (and the M2 pick target).
+        commands.spawn((
+            Mesh3d(quad.clone()),
+            MeshMaterial3d(mats.get(aspect.kind)),
+            Transform::from_translation(pos).with_scale(Vec3::ZERO),
+            Billboard,
+            LodReveal { base_scale, start: PLANET_LOD_START, full: PLANET_LOD_FULL },
+            Planet { sun, aspect: aspect.kind, value: aspect.value, label: aspect.label.clone() },
+            SceneItem,
+        ));
+        // Soft surrounding halo, present aspects only (a filled fact glows; an empty one is a dim dot).
+        if aspect.present {
             commands.spawn((
                 Mesh3d(quad.clone()),
-                MeshMaterial3d(mat.clone()),
+                MeshMaterial3d(mats.get(aspect.kind)),
                 Transform::from_translation(pos).with_scale(Vec3::ZERO),
                 Billboard,
-                LodReveal { base_scale: scale, start: 0.45, full: 0.78 },
+                LodReveal {
+                    base_scale: base_scale * PLANET_HALO_REL,
+                    start: PLANET_LOD_START,
+                    full: PLANET_LOD_FULL,
+                },
                 SceneItem,
             ));
-        };
-        for pkg in &an.packages {
-            let mat = if pkg.active { &mats.package_active } else { &mats.package_done };
-            place(commands, mat, 0.9);
-        }
-        for _ in 0..an.research_proxies.min(8) {
-            place(commands, &mats.research, 0.7);
         }
     }
 }
@@ -411,7 +429,6 @@ fn build_scene(
     // from within) — see the soma `SceneRoot` spawn + `soma_assets` in the node loop.
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
-    let anatomy_mats = AnatomyMats::build(materials, &glow);
     let halo_for = |kind: Kind, materials: &mut Assets<StandardMaterial>| {
         let (r, g, b) = kind.base_color();
         materials.add(StandardMaterial {
@@ -463,6 +480,13 @@ fn build_scene(
                 params: Vec4::new(RIM_POWER, SOMA_RIM_INTENSITY, SOMA_RIM_ALPHA, 0.0),
             }),
         );
+    }
+
+    // Shared profile-planet palette per network (10 aspect materials each), built from the network's
+    // theme hue. Reused across every sun's planets — never one material per planet.
+    let mut planet_mats: HashMap<Network, PlanetMats> = HashMap::new();
+    for net in Network::ALL {
+        planet_mats.insert(net, PlanetMats::build(materials, &glow, theme_rgb(net)));
     }
 
     // Nearest-neighbour count for the connective web (used by the edge loop below).
@@ -576,10 +600,10 @@ fn build_scene(
             };
             if dcount > 0 {
                 let tree = dendrite_tree(p, dcount, r, hash_u64(id));
-                // Embed this neuron's data anatomy (session beads + package/research twigs) directly
-                // onto the branches before the mesh is consumed — woven in, never orbiting.
+                // Weave this sun's profile planets onto its dendrite tips before the mesh is consumed
+                // — parent-only by construction, revealed on deep zoom.
                 if let Some(an) = anatomy.get(id) {
-                    embed_anatomy(commands, &halo_quad, &anatomy_mats, &tree.branches, an);
+                    embed_planets(commands, &halo_quad, &planet_mats[&network], &tree.branches, an, node, r);
                 }
                 // Volumetric tubes wearing the SAME soma-glass membrane (network hue, so CRM/Research
                 // adapt automatically): a clear see-through cell-wall with a glowing Fresnel rim,

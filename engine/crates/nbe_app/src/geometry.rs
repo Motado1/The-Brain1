@@ -60,20 +60,6 @@ pub(crate) fn lcg(state: &mut u64) -> f32 {
     ((*state >> 40) as u32) as f32 / (1u32 << 24) as f32
 }
 
-pub(crate) fn sample_path(points: &[Vec3], t: f32) -> Vec3 {
-    match points.len() {
-        0 => Vec3::ZERO,
-        1 => points[0],
-        n => {
-            let tt = t.clamp(0.0, 1.0) * (n - 1) as f32;
-            let i = tt.floor() as usize;
-            let f = tt - i as f32;
-            let j = (i + 1).min(n - 1);
-            points[i].lerp(points[j], f)
-        }
-    }
-}
-
 /// Emissive (HDR) for a node: a *subtle* cool glow at rest, brightening toward a white-cyan
 /// hotspot as it activates. Kept dim so most neurons sit quiet and only the active few stand out.
 pub(crate) fn node_emissive(kind: Kind, activation: f32) -> LinearRgba {
@@ -341,11 +327,10 @@ pub(crate) fn background_fibers_mesh(center: Vec3, radii: Vec3, count: usize, se
     builder.build()
 }
 
-/// One branch segment of a dendrite tree, exposed so the scene can weave data anatomy directly onto
-/// it: `points` is the polyline, `depth` its recursion level (0 = trunk), `leaf` true at the tips.
+/// One branch segment of a dendrite tree, exposed so the scene can weave profile planets directly
+/// onto it: `points` is the polyline, `leaf` true at the tips (where planets are placed).
 pub(crate) struct DendriteBranch {
     pub(crate) points: Vec<Vec3>,
-    pub(crate) depth: u32,
     pub(crate) leaf: bool,
 }
 
@@ -471,7 +456,7 @@ fn grow_dendrite(
             noise_seed,
         );
     }
-    branches.push(DendriteBranch { points: pts.clone(), depth, leaf });
+    branches.push(DendriteBranch { points: pts.clone(), leaf });
     if !leaf {
         let nchild = if lcg(s) > 0.7 { 3 } else { 2 };
         for _ in 0..nchild {

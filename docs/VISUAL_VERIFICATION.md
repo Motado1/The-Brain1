@@ -1,5 +1,21 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — profile "planet" nodes at the dendrite tips (M1, 2026-06-25)
+Each client/note **sun** now grows ~5 small **planet** billboards at its dendrite tips — the profile
+"aspects" (client: Goals/Diet/Injury/Schedule/Contact; note: Body/Status/Mentions/Topics/References),
+in fixed order. Planets are parent-only (never join the sun-linking web) and bloom in **on deep zoom**
+(`PLANET_LOD_START`=0.45 > the dendrite reveal), hidden at galactic view. Replaced the old session-bead
+/ package-twig anatomy. Per-aspect colour = the network hue blended toward a distinct accent; present
+aspects glow (nucleus + halo), empty ones are dim placeholder dots so the layout stays stable.
+- [ ] **Galaxy view = suns + links only** — zoomed out, no planet clutter (planets hidden).
+- [ ] **Suns ≫ planets** — a planet reads ~⅓ of its sun (`PLANET_BASE`=0.30); tune if too big/small.
+- [ ] **Zoom-in blooms ~5 planets per client** at the dendrite tips, spread around the tree, each
+      touching only its parent sun (no planet wired to another sun).
+- [ ] **Both networks** — clients (warm) and notes (cool) each show their five aspects.
+- [ ] **Filled vs empty reads** — a client with goals/diet/contact filled shows brighter planets than
+      an empty one (dim placeholder dots). Knobs (`tuning.rs`): `PLANET_BASE`, `PLANET_HALO_REL`,
+      `PLANET_LOD_START`/`PLANET_LOD_FULL`; per-aspect accents in `scene.rs` `PlanetMats::build`.
+
 ## 🟢 NEW — colorless glass tubes, lit only by soma + pulse (2026-06-25)
 The connectors + dendrites no longer wear the network hue at rest. They're now **colorless clear
 glass** (faint neutral Fresnel rim, `TUBE_GLASS_RIM` = 0.12) and take colour only from two sources,

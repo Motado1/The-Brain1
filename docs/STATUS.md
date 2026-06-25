@@ -8,11 +8,14 @@
 The app's full roadmap (galaxy/solar-system structure → UI shell → data-driven life → finance →
 packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current branch for this work:
 `claude/soma-dendrite-connections-9oq6rp`** (not `main`).
-- **Done + pushed:** soma GLB variants + engine re-skin; colorless glass tubes; **M1a = client
-  `profile` facet** (schema V3 → repo → snapshot → seed → ops/CLI → tests; commit `48b1b24`).
-- **Resume at M1b** (aspect data in `anatomy.rs`) — fully specced in ROADMAP "M1b"; then M1c
-  (`embed_planets` in `scene.rs`) + M1d (scale consts), which must land together (they're
-  compile-coupled). Tree is green now.
+- **Done + pushed:** soma GLB variants + engine re-skin; colorless glass tubes; **M1 COMPLETE** —
+  M1a (`profile` facet, `48b1b24`) + M1b/M1c/M1d landed together: `anatomy.rs` now yields a fixed
+  five-aspect list per sun (`AspectKind`/`Aspect`), `scene.rs::embed_planets` weaves those as small
+  **planet** billboards at the dendrite tips (per-network `PlanetMats`, `Planet` component for M2),
+  and `tuning.rs` carries the `PLANET_*` scale/LOD consts. The old session-bead/package-twig anatomy
+  is gone. Tree green: `nbe_data` 13 ✓, `nbe_cli` 34 ✓, `nbe_app` 21 ✓, clippy clean, builds.
+- **Resume at M2 — UI shell** (per owner, build the UI next): see ROADMAP "M2". Also pending: owner
+  GPU verify of the planet look (`docs/VISUAL_VERIFICATION.md` M1 checklist).
 
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 

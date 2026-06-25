@@ -171,6 +171,20 @@ pub(crate) struct LodReveal {
     pub(crate) full: f32,
 }
 
+/// A profile "planet" — one of the ~5 small aspect billboards woven onto a sun's dendrite tips.
+/// Carries enough to drive M2 hover/select labels (and an optional M3 flare): which sun it belongs
+/// to, which aspect it shows, its 0..1 intensity, and a short label.
+// Fields are read by the M2 UI shell (planet hover/select panel) — wired here so M1 spawns carry the
+// data; `allow(dead_code)` until that consumer lands.
+#[derive(Component)]
+#[allow(dead_code)]
+pub(crate) struct Planet {
+    pub(crate) sun: Entity,
+    pub(crate) aspect: crate::anatomy::AspectKind,
+    pub(crate) value: f32,
+    pub(crate) label: String,
+}
+
 /// Tags every entity the scene builder spawns (nodes, edges, sparks) so a rebuild can despawn the
 /// whole graph and re-create it from the DB — the camera/HUD (untagged) persist.
 #[derive(Component)]
