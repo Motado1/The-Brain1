@@ -1,6 +1,6 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::image::Image;
-use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
@@ -508,85 +508,6 @@ fn soma_noise(d: Vec3, seed: f32) -> f32 {
     (o1 * 0.6 + o2 * 0.3 + o3 * 0.1).clamp(-1.0, 1.0)
 }
 
-/// Granular soma mesh (Target 1, "the mass"): an icosphere whose vertices are pushed in/out along
-/// their radius by `soma_noise`, giving a lumpy "rough gemstone / packed cluster" silhouette that
-/// catches light unevenly instead of a smooth ball. Normals are recomputed so the bumps shade
-/// correctly (the Fresnel rim then ripples across the contours). `subdivisions` sets resolution,
-/// `amp` is bump depth as a fraction of radius, `seed` varies the lump pattern between variants.
-pub(crate) fn displaced_sphere(subdivisions: u8, amp: f32, seed: u64) -> Mesh {
-    let mut mesh = Sphere::new(1.0)
-        .mesh()
-        .ico(u32::from(subdivisions))
-        .expect("icosphere subdivisions in range");
-    let so = seed as f32 * 0.618_034;
-    if let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-    {
-        for p in positions.iter_mut() {
-            let dir = Vec3::from_array(*p).normalize_or_zero(); // unit sphere → position == normal
-            let r = 1.0 + amp * soma_noise(dir, so);
-            *p = (dir * r).to_array();
-        }
-    }
-    mesh.compute_normals();
-    mesh
-}
-
-/// The undirected nearest-neighbour links of a point cloud (each node to its `neighbours` closest),
-/// deduped, in a deterministic order. Shared by the soma builder (so each cell bulges toward its
-/// real connections) and the connector builder (so the tubes land on those bulges) — one source of
-/// truth for "who connects to whom". Returns pairs as first-encountered `(i, j)`.
-pub(crate) fn network_links(ps: &[Vec3], neighbours: usize) -> Vec<(usize, usize)> {
-    let mut linked: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for i in 0..ps.len() {
-        let mut nearest: Vec<(f32, usize)> = (0..ps.len())
-            .filter(|&j| j != i)
-            .map(|j| (ps[i].distance_squared(ps[j]), j))
-            .collect();
-        nearest.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for &(_, j) in nearest.iter().take(neighbours) {
-            if linked.insert((i.min(j), i.max(j))) {
-                out.push((i, j));
-            }
-        }
-    }
-    out
-}
-
-/// A soma cell body: the granular displaced sphere (`displaced_sphere`) with its membrane pulled
-/// outward into smooth points toward each connection `dir` — a star-shaped body whose processes flow
-/// into the connector funnels (instead of a round ball with tubes poking in). `base` shrinks the body
-/// between connections so the bulges read as points; `reach` is how far a point extends; `tightness`
-/// (>1) sharpens each lobe. `dirs` are unit directions in the soma's local space.
-pub(crate) fn soma_mesh(
-    subdivisions: u8,
-    amp: f32,
-    seed: u64,
-    dirs: &[Vec3],
-    base: f32,
-    reach: f32,
-    tightness: f32,
-) -> Mesh {
-    let mut mesh = displaced_sphere(subdivisions, amp, seed);
-    if let Some(VertexAttributeValues::Float32x3(positions)) =
-        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
-    {
-        for p in positions.iter_mut() {
-            let pos = Vec3::from_array(*p);
-            let dir = pos.normalize_or_zero();
-            // Strongest alignment with any connection direction → a cosine lobe toward each process.
-            let mut bulge = 0.0f32;
-            for &d in dirs {
-                bulge = bulge.max(dir.dot(d).max(0.0).powf(tightness));
-            }
-            *p = (pos * base + dir * reach * bulge).to_array();
-        }
-    }
-    mesh.compute_normals();
-    mesh
-}
-
 /// A soft round radial-gradient texture (white core fading to transparent) for the glow halos.
 pub(crate) fn glow_texture() -> Image {
     const N: usize = 64;
@@ -620,6 +541,7 @@ pub(crate) fn glow_texture() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::mesh::VertexAttributeValues;
 
     fn vertex_count(mesh: &Mesh) -> usize {
         match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
@@ -684,38 +606,5 @@ mod tests {
             Vec3::from_array(near).distance(node) < Vec3::from_array(far).distance(node),
             "small-u vertex sits nearer the soma than the large-u vertex"
         );
-    }
-
-    #[test]
-    fn displaced_sphere_stays_within_bump_bounds() {
-        let amp = 0.18;
-        let mesh = displaced_sphere(3, amp, 1);
-        let Some(VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        else {
-            panic!("expected Float32x3 positions");
-        };
-        assert!(!pos.is_empty(), "mesh has vertices");
-        // Every vertex sits between the inward and outward extremes of the noise displacement —
-        // it's a bumpy ball, never collapsed or blown out.
-        for p in pos {
-            let r = Vec3::from_array(*p).length();
-            assert!(
-                (1.0 - amp - 1e-3..=1.0 + amp + 1e-3).contains(&r),
-                "vertex radius {r} outside bump bounds"
-            );
-        }
-    }
-
-    #[test]
-    fn displaced_sphere_variants_differ() {
-        // Different seeds must produce different lump patterns (so the pool isn't all clones).
-        let a = displaced_sphere(3, 0.18, 1);
-        let b = displaced_sphere(3, 0.18, 4);
-        let (Some(VertexAttributeValues::Float32x3(pa)), Some(VertexAttributeValues::Float32x3(pb))) =
-            (a.attribute(Mesh::ATTRIBUTE_POSITION), b.attribute(Mesh::ATTRIBUTE_POSITION))
-        else {
-            panic!("expected Float32x3 positions");
-        };
-        assert_ne!(pa, pb, "seeds should yield distinct geometry");
     }
 }

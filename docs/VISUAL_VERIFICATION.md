@@ -13,20 +13,23 @@ on approach (rim-alpha ease `DEND_LOD_START..FULL` = 0.30..0.62 of global zoom; 
 - [ ] Tune `DEND_LOD_START` / `DEND_LOD_FULL` (tuning.rs) if the reveal feels too early/late for the
       scene scale.
 
-## 🟢 NEW — Blender soma import pipeline (`assets/soma.glb`) (2026-06-19)
-The renderer now imports a Blender-authored cell body. Drop a `soma.glb` into
-`engine/crates/nbe_app/assets/` and re-run — no recompile. If the file is absent, the procedural
-soma is used (app always runs). The glowing nucleus + halo billboards and firing/breathing are kept;
-only the membrane *shell* is swapped, placed at each neuron and scaled by activation.
-- How it works: `load_soma_gltf` (Startup) loads `soma.glb` scene 0; `apply_soma_gltf` (Update) waits
-  until it's fully loaded, then replaces each `ProceduralSoma` membrane with a `SceneRoot` at the same
-  transform (+`Breath`). Reload-safe (re-swaps after a live scene rebuild). Resource `SomaGltf`.
-- Export spec + tips are in `engine/crates/nbe_app/assets/README.md`.
-- [ ] **Drop in `soma.glb`** → the cell bodies become your Blender model (procedural icosphere gone),
-      correctly sized/positioned, still glowing (nucleus) and breathing.
-- [ ] **No file** → procedural soma still renders (graceful fallback); one info log points at the path.
-- [ ] **Per-region tint** of the imported body is NOT done yet (network colour still comes from the
-      nucleus core). Ask to add body-tinting + multi-variant (`soma_01..06.glb`) once the look lands.
+## 🟢 NEW — Blender soma variants (6× `assets/models/soma_0N.glb`) (2026-06-25)
+The procedural icosphere soma is **replaced** by six Blender-exported GLB cell bodies. Each neuron
+gets one variant (picked by id hash, `pick_variant`), spawned as a `SceneRoot` at the node, scaled by
+activation, breathing. The glowing nucleus + halo billboards and firing are unchanged (separate
+entities reading through the glass). Loaded at startup by `soma_assets::setup_soma_assets` (ordered
+before `load_graph`). **No procedural fallback** — missing files leave only the nucleus/halo glow.
+- Files: `engine/crates/nbe_app/assets/models/soma_01.glb … soma_06.glb` (committed). Export spec in
+  `assets/README.md`.
+- [ ] **Run it** → neuron cell bodies are the Blender glass membranes (Fresnel rim, dark translucent
+      centre), correctly sized/centred on each node, with the bright nucleus reading through.
+- [ ] **Variety** → distinct shapes are visibly distributed across nodes (not all identical), stable
+      across reloads.
+- [ ] **Scale/orientation sanity** → no giant/tiny/offset somas (confirms radius-1.0-at-origin export
+      + applied transforms). If any look wrong, it's an export-transform issue, not the engine.
+- [ ] **Firing still glows/flares** from the nucleus through the membrane; soma breathes.
+- Note: per-region tint of the *imported body* still isn't applied (network colour comes from the
+  nucleus core). The bodies were authored neutral so this can be added later if wanted.
 
 
 ## 🟡 VERIFY NEXT — connections as ORGANIC biological processes (thin, bumpy, alive) (2026-06-19)

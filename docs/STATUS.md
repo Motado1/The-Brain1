@@ -46,8 +46,11 @@ is next (see below).**
 - **Material:** `DendriteMaterial` (renamed from `PulseWaveMaterial`) — one color-agnostic tube
   material; rest = soma membrane formula, pulse overrides (alpha→1 + `DEND_PULSE_EMISSIVE` flood).
   Single tube per dendrite (inner "wire" core removed). ⬆ appearance still unsolved (blocker above).
-- **Soma:** bulges toward its connections (star body, `soma_mesh` + `network_links`); granular
-  `SOMA_BUMP`; glowing core enclosed in the translucent membrane.
+- **Soma:** six **Blender-exported GLB** cell bodies (`assets/models/soma_01..06.glb`), one per
+  neuron picked by id hash (`soma_assets::{SomaAssets, setup_soma_assets, pick_variant}`), spawned as
+  a `SceneRoot` scaled by activation + breathing; glowing nucleus + halo billboards read through the
+  glass. Replaced the procedural `soma_mesh`/`displaced_sphere`/`network_links` (all removed). No
+  procedural fallback. *Awaiting Windows visual check — see VISUAL_VERIFICATION.*
 - **UI (ported from the other chat):** Ctrl+P/Cmd+K omni-search, cinematic camera glide, glass theme,
   sidebar fly-to (`ui.rs`, `search.rs`, `nav.rs` CameraGlide).
 - **Branch fork RETIRED:** `session-frontier-continue-jap19w` was force-reset to `main`; `main` is the
@@ -189,9 +192,10 @@ all data lives inside one continuous fractal-dendrite anatomy, revealed by camer
 
 **Visual: granular-soma overhaul (hybrid look) in flight** (per-item desktop checklist in
 `docs/VISUAL_VERIFICATION.md`). Bevy **0.18.1**.
-- **Phase 1 done — geometry, headless-verified, no shader risk.** Somas are now lumpy **displaced
-  icospheres** (`geometry.rs::displaced_sphere`, 6-mesh pool picked per node) for a granular,
-  light-catching mass; filaments **embed + flare** into the soma like roots (`ROOT_EMBED`/`ROOT_FLARE`
+- **Phase 1 done — geometry, headless-verified, no shader risk.** Somas are now **Blender GLB
+  variants** (`assets/models/soma_01..06.glb` via `soma_assets`, picked per node by hash) — superseded
+  the earlier procedural displaced-icosphere pool; filaments **embed + flare** into the soma like roots
+  (`ROOT_EMBED`/`ROOT_FLARE`
   in `tuning.rs`, `scene.rs` web loop); an additive **junction glow** dot sits at each anchor so light
   compounds where roots meet the surface (`JUNCTION_GLOW`). New tunables + 2 unit tests in `geometry.rs`.
   *Awaiting desktop screenshot to tune `SOMA_BUMP`/flare/glow.*

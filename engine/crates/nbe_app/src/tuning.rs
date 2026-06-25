@@ -36,46 +36,22 @@ pub(crate) const MOTES_PER_NETWORK: usize = 360;
 /// the flow deliberate without letting backlogs build.
 pub(crate) const QUEUE_CAP: usize = 2;
 
-// ---- soma membrane (Fresnel rim) shader — SHARED by the soma AND the tubes ---------------
-// The connectors + dendrites (DendriteMaterial / pulse_wave.wgsl) wear the EXACT same glass cell-wall
-// as the soma so they look identical to the cell body: a clear see-through centre with a glowing
-// Fresnel rim, AlphaMode::Blend. These three constants drive both.
-/// Rim sharpness (higher = thinner cell-wall line, clearer see-through centre).
+// ---- tube membrane (Fresnel rim) shader — connectors + dendrites -------------------------
+// The connectors + dendrites (DendriteMaterial / pulse_wave.wgsl) wear a glass cell-wall matching the
+// imported soma GLBs: a clear see-through centre with a glowing Fresnel rim, AlphaMode::Blend.
+/// Rim sharpness (higher = thinner cell-wall line, clearer see-through centre). Shared by all tubes.
 pub(crate) const RIM_POWER: f32 = 2.5;
-/// Rim glow brightness.
-pub(crate) const RIM_INTENSITY: f32 = 1.6;
-/// Rim opacity (centre stays clear). Lower = more translucent (more see-through), so a tube reads as
-/// glass rather than a solid band up close — drop this for the tubes if they still look too solid.
-pub(crate) const RIM_ALPHA: f32 = 0.68;
 
-// ---- volumetric tube material (soma-glass membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial)
-// The tubes use the soma's Fresnel formula but with their OWN rim intensity/alpha: a thin tube is
-// "all rim" (no broad camera-facing face like the big soma sphere), so at the soma's full RIM_INTENSITY
-// it reads as a bright solid bar. Dimmed + more transparent here so a thin tube reads as a soft
-// translucent glass line — the soma's *surface* look at a tube's apparent brightness. (RIM_POWER is
-// still shared.) Raise toward the soma's RIM_INTENSITY(1.6)/RIM_ALPHA(0.68) for brighter/solider tubes.
-/// Tube rim glow brightness (vs the soma's RIM_INTENSITY 1.6).
+// ---- volumetric tube material (glass membrane + pulse fill — pulse_wave.wgsl / DendriteMaterial) ---
+// A thin tube is "all rim" (no broad camera-facing face), so it's dimmed + more transparent than a big
+// surface would be, to read as a soft translucent glass line. (RIM_POWER is shared.)
+/// Tube rim glow brightness.
 pub(crate) const TUBE_RIM_INTENSITY: f32 = 0.9;
-/// Tube rim opacity (vs the soma's RIM_ALPHA 0.68) — lower = more see-through glass.
+/// Tube rim opacity — lower = more see-through glass.
 pub(crate) const TUBE_RIM_ALPHA: f32 = 0.45;
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
 /// Drop if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
-
-// ---- granular soma body (Phase-1 geometry: textured mass + root junctions) --------------
-/// Icosphere subdivision level for the soma mesh (higher = finer, more triangles). 3 ≈ 642 verts —
-/// enough resolution for the noise bumps to read without exploding draw cost.
-pub(crate) const SOMA_SUBDIV: u8 = 3;
-/// Bump depth as a fraction of radius — how lumpy/granular the silhouette is. Pushed up so the cell
-/// body reads as a textured granular mass (reference look), not a smooth ball.
-pub(crate) const SOMA_BUMP: f32 = 0.28;
-/// Soma body radius between connections (fraction of r) — shrunk below 1 so the connection bulges
-/// stand out as star-shaped points (the membrane flowing out into each process).
-pub(crate) const SOMA_BASE: f32 = 0.8;
-/// How far the membrane bulges outward toward each connection (fraction of r) — the process length.
-pub(crate) const SOMA_PROCESS_REACH: f32 = 0.32;
-/// Sharpness of each connection lobe (cosine power, >1 = tighter/pointier process toward the link).
-pub(crate) const SOMA_PROCESS_TIGHTNESS: f32 = 3.0;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.

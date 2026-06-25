@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::gltf::GltfAssetLabel;
 use bevy::image::Image;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
@@ -20,6 +19,7 @@ use crate::interaction::{ClientRevenue, TargetVisualScale, revenue_to_scale};
 use crate::nav::*;
 use crate::now_unix;
 use crate::shaders::{DendriteMaterial, SomaMaterial};
+use crate::soma_assets::{pick_variant, SomaAssets};
 use crate::tuning::*;
 
 /// Pre-built additive glow materials for the data anatomy (one palette, reused for every neuron).
@@ -184,69 +184,25 @@ pub(crate) fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut somas: ResMut<Assets<SomaMaterial>>,
+    _somas: ResMut<Assets<SomaMaterial>>,
     mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
+    soma_assets: Res<SomaAssets>,
 ) {
     let (center, radius) = build_scene(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
-        somas.as_mut(),
         waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
+        &soma_assets,
         &db_path.0,
     )
     .unwrap_or((Vec3::ZERO, 200.0));
     spawn_camera(&mut commands, center, radius);
-}
-
-/// Startup: kick off loading the optional Blender soma model (`assets/soma.glb`, first scene). If the
-/// file is absent the handle never finishes loading and the procedural soma is kept (see
-/// `apply_soma_gltf`). Drop `soma.glb` into `crates/nbe_app/assets/` (dev) or next to the binary
-/// (release) and it appears on the next run — no recompile.
-pub(crate) fn load_soma_gltf(asset_server: Res<AssetServer>, mut soma: ResMut<SomaGltf>) {
-    soma.scene = Some(asset_server.load(GltfAssetLabel::Scene(0).from_asset("soma.glb")));
-    info!("soma import: looking for assets/soma.glb (drop a Blender export there to use it)");
-}
-
-/// Once `soma.glb` has fully loaded, replace each procedural soma membrane with the imported model at
-/// the same position + activation scale (still breathing). The glowing nucleus + halo billboards are
-/// separate entities and are left untouched, so firing/glow are unchanged — only the cell-body shell
-/// is swapped. Runs every frame so it also catches somas from a live scene reload; a missing or
-/// still-loading asset simply leaves the procedural soma in place.
-pub(crate) fn apply_soma_gltf(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    soma: Res<SomaGltf>,
-    q: Query<(Entity, &Transform), With<ProceduralSoma>>,
-) {
-    if q.is_empty() {
-        return;
-    }
-    let Some(scene) = soma.scene.as_ref() else {
-        return;
-    };
-    if !asset_server.is_loaded_with_dependencies(scene.id()) {
-        return; // still loading, or absent/failed → keep the procedural soma
-    }
-    let mut s: u64 = 0xA11CE;
-    for (ent, tf) in &q {
-        let r = tf.scale.max_element().max(0.0001);
-        let phase = lcg(&mut s) * std::f32::consts::TAU;
-        let speed = 0.6 + lcg(&mut s) * 0.8;
-        commands.spawn((
-            SceneRoot(scene.clone()),
-            Transform::from_translation(tf.translation).with_scale(Vec3::splat(r)),
-            Breath { base: Vec3::splat(r), phase, speed },
-            SomaBody,
-            SceneItem,
-        ));
-        commands.entity(ent).despawn();
-    }
 }
 
 /// Rebuild the graph from the DB when a button has changed it: despawn the old scene and re-create
@@ -257,11 +213,12 @@ pub(crate) fn apply_reload(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut somas: ResMut<Assets<SomaMaterial>>,
+    _somas: ResMut<Assets<SomaMaterial>>,
     mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
     db_path: Res<DbPath>,
+    soma_assets: Res<SomaAssets>,
     old: Query<Entity, With<SceneItem>>,
 ) {
     if !control.reload {
@@ -275,10 +232,10 @@ pub(crate) fn apply_reload(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
-        somas.as_mut(),
         waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
+        &soma_assets,
         &db_path.0,
     );
 }
@@ -291,10 +248,10 @@ fn build_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
-    somas: &mut Assets<SomaMaterial>,
     waves: &mut Assets<DendriteMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
+    soma_assets: &SomaAssets,
     path: &str,
 ) -> Option<(Vec3, f32)> {
     registry.nodes.clear();
@@ -412,9 +369,9 @@ fn build_scene(
         }
     }
 
-    // Spawn nodes + build the navigation registry. Each soma = a granular, lumpy structural mass
-    // (real 3D form) under additive glow billboards (the light from within), built per-node so the
-    // membrane bulges toward its connections (see soma_mesh in the node loop).
+    // Spawn nodes + build the navigation registry. Each soma = a Blender-exported GLB cell body (one
+    // of six organic variants, picked per node by hash) under additive glow billboards (the light
+    // from within) — see the soma `SceneRoot` spawn + `soma_assets` in the node loop.
     let halo_quad = meshes.add(Rectangle::new(1.0, 1.0));
     let glow = images.add(glow_texture());
     let anatomy_mats = AnatomyMats::build(materials, &glow);
@@ -445,21 +402,6 @@ fn build_scene(
         Network::Business => (1.0, 0.30, 0.07),
         Network::Research => (0.5, 0.42, 1.0),
     };
-    // Per-network Fresnel "cell-wall" material for the soma sphere (custom shader). The connectors +
-    // dendrites wear the same glass via a per-tube DendriteMaterial built at spawn time (so each can
-    // carry its own pulse/firing surge) — see the node + web loops below.
-    let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
-    for net in Network::ALL {
-        let (r, g, b) = theme_rgb(net);
-        soma_of.insert(
-            net,
-            somas.add(SomaMaterial {
-                rim_color: LinearRgba::new(r, g, b, 1.0),
-                params: Vec4::new(RIM_POWER, RIM_INTENSITY, RIM_ALPHA, 0.0),
-            }),
-        );
-    }
-
     // Per-entity firing threshold (defaults 0.5).
     let threshold_of: HashMap<&str, f32> = snap
         .activations
@@ -471,21 +413,8 @@ fn build_scene(
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut radius_of: HashMap<String, f32> = HashMap::new();
 
-    // Per-node connection directions (the same nearest-neighbour links the connectors use, via
-    // network_links) so each soma can bulge its membrane out toward its connections — a star-shaped
-    // body whose points flow into the connector funnels.
+    // Nearest-neighbour count for the connective web (used by the edge loop below).
     const NEIGHBOURS: usize = 3;
-    let mut conn_dirs: HashMap<String, Vec<Vec3>> = HashMap::new();
-    for ids in groups.values() {
-        let ps: Vec<Vec3> = ids.iter().map(|id| pos[id]).collect();
-        for (i, j) in network_links(&ps, NEIGHBOURS) {
-            let d = (ps[j] - ps[i]).normalize_or_zero();
-            if d.length_squared() > 0.0 {
-                conn_dirs.entry(ids[i].clone()).or_default().push(d);
-                conn_dirs.entry(ids[j].clone()).or_default().push(-d);
-            }
-        }
-    }
 
     for (&network, ids) in &groups {
         for id in ids {
@@ -557,27 +486,16 @@ fn build_scene(
                     SceneItem,
                 ))
                 .id();
-            // Translucent cell body via the Fresnel "cell-wall" shader: glowing rim, clear centre.
-            // Built per-node, bulging the membrane outward toward each connection (soma_mesh) so the
-            // body is star-shaped and its points flow into the connector funnels. No tilt/non-uniform
-            // scale — the connection bulges + noise give the organic shape; uniform scale keeps the
-            // bulge directions (world space) aligned with the connectors.
-            let dirs: Vec<Vec3> = conn_dirs.get(id).cloned().unwrap_or_default();
-            let soma = soma_mesh(
-                SOMA_SUBDIV,
-                SOMA_BUMP,
-                hash_u64(id),
-                &dirs,
-                SOMA_BASE,
-                SOMA_PROCESS_REACH,
-                SOMA_PROCESS_TIGHTNESS,
-            );
+            // Translucent cell body — a Blender-exported GLB (bioluminescent glass membrane: Fresnel
+            // rim, dark transparent centre). One of six organic variants (sphere / egg / oblate /
+            // blob / …) distributed by the node-id hash so every network has visual variety. Bevy
+            // instantiates the `SceneRoot` once its GLB finishes loading; it breathes like the old
+            // mesh, and the glowing nucleus + halo billboards (already spawned) read through the glass.
+            let variant = pick_variant(hash_u64(id));
             commands.spawn((
-                Mesh3d(meshes.add(soma)),
-                MeshMaterial3d(soma_of[&network].clone()),
+                SceneRoot(soma_assets.variants[variant].clone()),
                 Transform::from_translation(p).with_scale(Vec3::splat(r)),
                 Breath { base: Vec3::splat(r), phase, speed },
-                ProceduralSoma,
                 SceneItem,
             ));
 
