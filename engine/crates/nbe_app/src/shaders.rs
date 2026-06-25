@@ -36,16 +36,22 @@ impl Material for SomaMaterial {
 /// the tube with light where it passes. Per-tube instance so each carries its own wave uniform.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
 pub(crate) struct DendriteMaterial {
-    /// rgb = base colour (network hue: amber CRM / indigo Research), a unused.
+    /// rgb = the soma's hue that bleeds into this tube near its soma end(s) + the pulse colour
+    /// (network: amber CRM / indigo Research). The tube does NOT wear this at rest — it's colorless
+    /// clear glass until lit by soma proximity or a pulse. a unused.
     #[uniform(0)]
     pub(crate) color: LinearRgba,
-    /// x = rim power, y = rim intensity, z = rim alpha (all matched to the soma's RIM_*),
-    /// w = pulse emissive (massive, the travelling flood).
+    /// x = rim power, y = rim/bleed intensity, z = rim alpha, w = pulse emissive (the travelling flood).
     #[uniform(1)]
     pub(crate) rest: Vec4,
     /// x = wave centre t (0..1), y = amplitude (0 = idle, 1 = active), z = width (sigma), w unused.
     #[uniform(2)]
     pub(crate) wave: Vec4,
+    /// Soma-proximity glow ("light coming from the soma fills the tube"): x = strength at the u=0 end,
+    /// y = strength at the u=1 end (dendrites light one end, connectors both), z = falloff length along
+    /// u, w = the faint colorless glass-rim level shown everywhere at rest.
+    #[uniform(3)]
+    pub(crate) ends: Vec4,
 }
 
 impl Material for DendriteMaterial {

@@ -1,5 +1,21 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — colorless glass tubes, lit only by soma + pulse (2026-06-25)
+The connectors + dendrites no longer wear the network hue at rest. They're now **colorless clear
+glass** (faint neutral Fresnel rim, `TUBE_GLASS_RIM` = 0.12) and take colour only from two sources,
+both the **soma's** hue (never their own): **(1)** soma proximity — the cell body's light bleeds into
+the tube near its soma end(s) and fades along `u` (`SOMA_BLEED_FALLOFF` = 0.4 of the length); **(2)**
+the travelling pulse flood. Dendrites light at the root (u=0); connectors light at **both** ends
+(both touch a soma). New `ends` uniform on `DendriteMaterial` + rewritten `pulse_wave.wgsl`.
+- [ ] **Idle wiring is clear/colorless** — away from somas and with no pulse, tubes read as faint
+      glass outlines, NOT a glowing orange web.
+- [ ] **Colour pools at the cell bodies** — near each soma the tube ends glow that soma's hue (amber
+      Business / blue Research) and fade to clear toward the middle of a run.
+- [ ] **Pulses still flood** the tube with light as they travel (unchanged).
+- [ ] Tune: `TUBE_GLASS_RIM` (idle visibility), `SOMA_BLEED_FALLOFF` (how far the soma light reaches),
+      `TUBE_RIM_INTENSITY` (bleed brightness) — all in `tuning.rs`. WGSL is GPU-validated at runtime,
+      so this is the first run that could surface a shader error — watch the console on launch.
+
 ## 🟢 NEW — cosmic LOD: dendrite tier reveal (2026-06-23)
 Dendrites now split into a **trunk tier** (always drawn) and a **fine tier** (depth ≥ 1) that fades/
 culls by zoom. `apply_dendrite_lod` hides the fine thicket in the galactic view and blooms it back in

@@ -599,6 +599,8 @@ fn build_scene(
                             DEND_PULSE_EMISSIVE,
                         ),
                         wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
+                        // Dendrite: soma light bleeds in at the root (u=0) only; the tip (u=1) is free.
+                        ends: Vec4::new(1.0, 0.0, SOMA_BLEED_FALLOFF, TUBE_GLASS_RIM),
                     })
                 };
                 let trunk_mat = mk_mat(waves);
@@ -708,6 +710,9 @@ fn build_scene(
                     color: LinearRgba::new(nr, ng, nb, 1.0),
                     rest: Vec4::new(RIM_POWER, TUBE_RIM_INTENSITY, TUBE_RIM_ALPHA, DEND_PULSE_EMISSIVE),
                     wave: Vec4::new(0.0, 0.0, PULSE_WIDTH, 0.0),
+                    // Connector: both ends touch a soma, so light bleeds in from u=0 AND u=1, fading to
+                    // colorless glass in the middle of the run.
+                    ends: Vec4::new(1.0, 1.0, SOMA_BLEED_FALLOFF, TUBE_GLASS_RIM),
                 });
                 commands.spawn((
                     // Organic bumpy membrane skin (like the dendrites) so the connector reads as living

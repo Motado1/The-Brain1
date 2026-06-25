@@ -52,6 +52,13 @@ pub(crate) const TUBE_RIM_ALPHA: f32 = 0.45;
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
 /// Drop if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
+/// Faint colorless (white) Fresnel-rim level shown on an idle tube so the clear-glass wiring is still
+/// visible when far from any soma and no pulse is passing. Raise for more visible idle tubes, drop
+/// toward 0 to make the wiring nearly invisible until lit.
+pub(crate) const TUBE_GLASS_RIM: f32 = 0.12;
+/// How far the soma's light bleeds along a tube from its soma end (fraction of the tube's length, u).
+/// The cell body's hue fills the tube up to here, then fades to colorless glass.
+pub(crate) const SOMA_BLEED_FALLOFF: f32 = 0.4;
 
 // ---- soma membrane skin (engine override of the imported GLB material) -------------------
 // The imported GLB ships opaque-white materials; `apply_soma_skin` re-skins each soma mesh in-engine
