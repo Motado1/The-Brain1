@@ -48,6 +48,15 @@ fn knowledge_from_row(row: &Row) -> rusqlite::Result<KnowledgeFacet> {
     })
 }
 
+fn profile_from_row(row: &Row) -> rusqlite::Result<ProfileFacet> {
+    Ok(ProfileFacet {
+        entity_id: row.get("entity_id")?,
+        fitness_goals: row.get("fitness_goals")?,
+        dietary_needs: row.get("dietary_needs")?,
+        injury_history: row.get("injury_history")?,
+    })
+}
+
 fn edge_from_row(row: &Row) -> rusqlite::Result<Edge> {
     Ok(Edge {
         id: row.get("id")?,
@@ -117,6 +126,16 @@ pub fn upsert_knowledge(conn: &Connection, f: &KnowledgeFacet) -> Result<()> {
             (entity_id, body_md, template_type, review_status)
          VALUES (?1, ?2, ?3, ?4)",
         params![f.entity_id, f.body_md, f.template_type, f.review_status],
+    )?;
+    Ok(())
+}
+
+pub fn upsert_profile(conn: &Connection, f: &ProfileFacet) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO profile_facet
+            (entity_id, fitness_goals, dietary_needs, injury_history)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![f.entity_id, f.fitness_goals, f.dietary_needs, f.injury_history],
     )?;
     Ok(())
 }
@@ -223,6 +242,16 @@ pub fn get_knowledge(conn: &Connection, id: &str) -> Result<Option<KnowledgeFace
         .optional()?)
 }
 
+pub fn get_profile(conn: &Connection, id: &str) -> Result<Option<ProfileFacet>> {
+    Ok(conn
+        .query_row(
+            "SELECT * FROM profile_facet WHERE entity_id = ?1",
+            params![id],
+            profile_from_row,
+        )
+        .optional()?)
+}
+
 pub fn get_activation(conn: &Connection, id: &str) -> Result<Option<Activation>> {
     Ok(conn
         .query_row(
@@ -254,6 +283,7 @@ pub fn entity_with_facets(conn: &Connection, id: &str) -> Result<Option<EntityWi
         crm: get_crm(conn, id)?,
         ledger: get_ledger(conn, id)?,
         knowledge: get_knowledge(conn, id)?,
+        profile: get_profile(conn, id)?,
         activation: get_activation(conn, id)?,
         layer: get_layer(conn, id)?,
     }))
@@ -337,6 +367,12 @@ pub fn list_ledger(conn: &Connection) -> Result<Vec<LedgerFacet>> {
 pub fn list_knowledge(conn: &Connection) -> Result<Vec<KnowledgeFacet>> {
     let mut stmt = conn.prepare("SELECT * FROM knowledge_facet ORDER BY entity_id")?;
     let rows = stmt.query_map([], knowledge_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn list_profile(conn: &Connection) -> Result<Vec<ProfileFacet>> {
+    let mut stmt = conn.prepare("SELECT * FROM profile_facet ORDER BY entity_id")?;
+    let rows = stmt.query_map([], profile_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 

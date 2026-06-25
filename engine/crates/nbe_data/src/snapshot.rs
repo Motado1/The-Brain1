@@ -23,6 +23,8 @@ pub struct Snapshot {
     pub crm: Vec<CrmFacet>,
     pub ledger: Vec<LedgerFacet>,
     pub knowledge: Vec<KnowledgeFacet>,
+    #[serde(default)]
+    pub profile: Vec<ProfileFacet>,
     pub edges: Vec<Edge>,
     pub activations: Vec<Activation>,
     pub layers: Vec<LayerRow>,
@@ -138,6 +140,7 @@ pub fn export(db: &Db) -> Result<Snapshot> {
         crm,
         ledger,
         knowledge,
+        profile: repo::list_profile(conn)?,
         edges,
         activations,
         layers,
@@ -162,6 +165,9 @@ pub fn import(db: &mut Db, snap: &Snapshot) -> Result<()> {
     }
     for f in &snap.knowledge {
         repo::upsert_knowledge(&tx, f)?;
+    }
+    for f in &snap.profile {
+        repo::upsert_profile(&tx, f)?;
     }
     for a in &snap.activations {
         repo::upsert_activation(&tx, a)?;

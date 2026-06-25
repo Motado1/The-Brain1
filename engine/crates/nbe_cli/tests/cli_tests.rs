@@ -734,3 +734,44 @@ fn calendar_sync_is_idempotent() {
     let second = ops::calendar_sync(&mut db, Some(&ics_path), NOW).unwrap();
     assert!(second.contains("0 new"), "re-sync must not duplicate: {second}");
 }
+
+#[test]
+fn profile_facet_set_view_and_clear() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "James Bywater", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+
+    // Set two fields; injury left unset.
+    ops::profile_set(
+        &mut db,
+        &cid[..8],
+        Some("Build strength"),
+        Some("High protein"),
+        None,
+    )
+    .unwrap();
+    let p = repo::get_profile(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(p.fitness_goals.as_deref(), Some("Build strength"));
+    assert_eq!(p.dietary_needs.as_deref(), Some("High protein"));
+    assert_eq!(p.injury_history, None);
+
+    // Partial update: change only injury, leave the others untouched.
+    ops::profile_set(&mut db, &cid[..8], None, None, Some("ACL 2022")).unwrap();
+    let p = repo::get_profile(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(p.fitness_goals.as_deref(), Some("Build strength"));
+    assert_eq!(p.injury_history.as_deref(), Some("ACL 2022"));
+
+    // Empty string clears a field.
+    ops::profile_set(&mut db, &cid[..8], Some(""), None, None).unwrap();
+    let p = repo::get_profile(&db.conn, &cid).unwrap().unwrap();
+    assert_eq!(p.fitness_goals, None);
+
+    let view = ops::profile_view(&db, &cid[..8]).unwrap();
+    assert!(view.contains("ACL 2022"), "{view}");
+    assert!(view.contains("goals:  (none)"), "{view}");
+
+    // Non-clients are rejected.
+    ops::note_add(&mut db, "Topic", "body", None, NOW).unwrap();
+    let note_id = repo::list_knowledge(&db.conn).unwrap()[0].entity_id.clone();
+    assert!(ops::profile_set(&mut db, &note_id[..8], Some("x"), None, None).is_err());
+}

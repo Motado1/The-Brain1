@@ -35,6 +35,26 @@ impl Default for SeedConfig {
 
 const BASE_TS: i64 = 1_700_000_000;
 
+// Sample profile copy for seeded clients. Indexed by entity ordinal `i` (NOT the rng) so the seed
+// stays byte-deterministic — adding these rows must not perturb the random stream.
+const GOALS: [&str; 4] = [
+    "Build strength, lose 5kg",
+    "Marathon prep, improve endurance",
+    "Post-injury mobility + core",
+    "General fitness, tone up",
+];
+const DIETS: [&str; 4] = [
+    "High protein, low carb",
+    "Vegetarian, dairy-free",
+    "Intermittent fasting 16:8",
+    "No restrictions",
+];
+const INJURIES: [&str; 3] = [
+    "Left knee ACL repair 2022",
+    "Lower back strain, recurring",
+    "Right shoulder impingement",
+];
+
 fn rid(rng: &mut ChaCha8Rng) -> String {
     let bytes: [u8; 16] = rng.random();
     uuid::Uuid::from_bytes(bytes).to_string()
@@ -140,6 +160,17 @@ pub fn seed(db: &mut Db, cfg: &SeedConfig) -> Result<()> {
                         },
                     )?;
                 }
+                // Client profile (the "planet" detail). Deterministic from `i`; every 3rd client
+                // carries an injury note, so some profiles are partial — exercising the empty-aspect path.
+                repo::upsert_profile(
+                    &tx,
+                    &ProfileFacet {
+                        entity_id: id.clone(),
+                        fitness_goals: Some(GOALS[i % GOALS.len()].into()),
+                        dietary_needs: Some(DIETS[i % DIETS.len()].into()),
+                        injury_history: (i % 3 == 0).then(|| INJURIES[i % INJURIES.len()].into()),
+                    },
+                )?;
             }
             // Output: finalized financial outcomes (income totals).
             Layer::Output => {

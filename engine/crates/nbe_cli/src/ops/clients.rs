@@ -227,6 +227,53 @@ pub fn client_update(
     ))
 }
 
+/// Set a client's profile — the personal-training detail behind the orbiting "planet" nodes
+/// (fitness goals, dietary needs, injury history). `None` leaves a field unchanged; an empty string
+/// clears it. Errors if the entity isn't a client.
+pub fn profile_set(
+    db: &mut nbe_data::Db,
+    prefix: &str,
+    goals: Option<&str>,
+    diet: Option<&str>,
+    injury: Option<&str>,
+) -> Result<String> {
+    let id = resolve(db, prefix)?;
+    if repo::get_crm(&db.conn, &id)?.is_none() {
+        return Err(Error::Msg(format!("{} is not a client", short(&id))));
+    }
+    let mut p = repo::get_profile(&db.conn, &id)?.unwrap_or(ProfileFacet {
+        entity_id: id.clone(),
+        fitness_goals: None,
+        dietary_needs: None,
+        injury_history: None,
+    });
+    let apply = |field: &mut Option<String>, v: Option<&str>| {
+        if let Some(v) = v {
+            *field = if v.is_empty() { None } else { Some(v.to_string()) };
+        }
+    };
+    apply(&mut p.fitness_goals, goals);
+    apply(&mut p.dietary_needs, diet);
+    apply(&mut p.injury_history, injury);
+    repo::upsert_profile(&db.conn, &p)?;
+    Ok(format!("updated profile for {}", short(&id)))
+}
+
+/// Show a client's profile fields (or "(none)" for unset ones).
+pub fn profile_view(db: &nbe_data::Db, prefix: &str) -> Result<String> {
+    let id = resolve(db, prefix)?;
+    match repo::get_profile(&db.conn, &id)? {
+        Some(p) => Ok(format!(
+            "Profile {}\n  goals:  {}\n  diet:   {}\n  injury: {}",
+            short(&id),
+            p.fitness_goals.as_deref().unwrap_or("(none)"),
+            p.dietary_needs.as_deref().unwrap_or("(none)"),
+            p.injury_history.as_deref().unwrap_or("(none)"),
+        )),
+        None => Ok(format!("no profile for {}", short(&id))),
+    }
+}
+
 /// Split a stored note body (`# title\n\n…body`) back into its title and body parts.
 fn split_note(md: &str) -> (String, String) {
     let mut lines = md.lines();

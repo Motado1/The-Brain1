@@ -91,6 +91,17 @@ pub struct KnowledgeFacet {
     pub review_status: String,
 }
 
+/// "Client profile" — free-text personal-training detail for a client (the data behind the orbiting
+/// "planet" nodes). All fields optional: an owner fills these in over time, and an empty profile
+/// simply renders dim/absent planets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileFacet {
+    pub entity_id: Id,
+    pub fitness_goals: Option<String>,
+    pub dietary_needs: Option<String>,
+    pub injury_history: Option<String>,
+}
+
 /// A straight, weighted, (usually) directed synaptic pathway between two neurons.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
@@ -119,6 +130,7 @@ pub struct EntityWithFacets {
     pub crm: Option<CrmFacet>,
     pub ledger: Option<LedgerFacet>,
     pub knowledge: Option<KnowledgeFacet>,
+    pub profile: Option<ProfileFacet>,
     pub activation: Option<Activation>,
     pub layer: Option<Layer>,
 }

@@ -4,7 +4,7 @@
 
 pub(crate) use nbe_data::{
     new_id, repo, seed::SeedConfig, snapshot, Activation, CrmFacet, Edge, Entity, Error,
-    KnowledgeFacet, Layer, LedgerFacet, Package, Result, Session, Slot,
+    KnowledgeFacet, Layer, LedgerFacet, Package, ProfileFacet, Result, Session, Slot,
 };
 pub(crate) use nbe_sim::{activation_value, ActivationInputs};
 

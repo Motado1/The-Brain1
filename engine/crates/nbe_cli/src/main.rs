@@ -62,6 +62,19 @@ enum Command {
         schedule: Option<String>,
     },
 
+    /// Set a client's profile (fitness goals, dietary needs, injury history). "" clears a field.
+    ProfileSet {
+        id: String,
+        #[arg(long)]
+        goals: Option<String>,
+        #[arg(long)]
+        diet: Option<String>,
+        #[arg(long)]
+        injury: Option<String>,
+    },
+    /// Show a client's profile.
+    ProfileView { id: String },
+
     /// Add an invoice (income).
     InvoiceAdd {
         amount: String,
@@ -332,6 +345,20 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
             schedule.as_deref(),
             now,
         ),
+
+        Command::ProfileSet {
+            id,
+            goals,
+            diet,
+            injury,
+        } => ops::profile_set(
+            &mut db,
+            &id,
+            goals.as_deref(),
+            diet.as_deref(),
+            injury.as_deref(),
+        ),
+        Command::ProfileView { id } => ops::profile_view(&db, &id),
 
         Command::InvoiceAdd {
             amount,

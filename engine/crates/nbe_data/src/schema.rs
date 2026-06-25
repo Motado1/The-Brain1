@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use crate::Result;
 
 /// Current schema version. Bump and add a new block when the schema evolves.
-const CURRENT_VERSION: i64 = 2;
+const CURRENT_VERSION: i64 = 3;
 
 /// Apply any pending migrations to bring `conn` up to [`CURRENT_VERSION`].
 pub fn migrate(conn: &Connection) -> Result<()> {
@@ -20,6 +20,9 @@ pub fn migrate(conn: &Connection) -> Result<()> {
     }
     if version < 2 {
         conn.execute_batch(V2)?;
+    }
+    if version < 3 {
+        conn.execute_batch(V3)?;
     }
     if version < CURRENT_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {CURRENT_VERSION};"))?;
@@ -135,5 +138,17 @@ CREATE INDEX idx_slot_client ON slot(client_id);
 CREATE TABLE config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+"#;
+
+/// v3 — the client **profile** facet: free-text personal-training fields (fitness goals, dietary
+/// needs, injury history) that surface as the "planet" detail nodes orbiting a client. 1:1 with
+/// `entity`, cascades on delete like every other facet.
+const V3: &str = r#"
+CREATE TABLE profile_facet (
+    entity_id      TEXT PRIMARY KEY REFERENCES entity(id) ON DELETE CASCADE,
+    fitness_goals  TEXT,
+    dietary_needs  TEXT,
+    injury_history TEXT
 );
 "#;
