@@ -17,6 +17,9 @@ pub(crate) struct NodeInfo {
     pub(crate) revenue_cents: Option<i64>,
     /// Client renewal date (unix seconds).
     pub(crate) renewal: Option<i64>,
+    /// The node's five profile "planet" aspects (same data woven onto its dendrite tips), surfaced in
+    /// the detail panel so the planets are readable as text too. Empty for nodes without anatomy.
+    pub(crate) aspects: Vec<crate::anatomy::Aspect>,
 }
 
 /// Cursor-pick state: which node the pointer is over, which is selected, and the cached detail text

@@ -659,6 +659,7 @@ fn build_scene(
                 } else {
                     None
                 },
+                aspects: anatomy.get(id).map(|a| a.aspects.clone()).unwrap_or_default(),
             });
         }
     }

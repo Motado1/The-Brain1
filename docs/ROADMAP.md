@@ -22,9 +22,13 @@ build the **UI shell** first.
   Tree is green: `nbe_data` 13 ✓, `nbe_cli` 34 ✓, `nbe_app` 21 ✓, clippy clean, `nbe_app` builds.
 - **Awaiting owner GPU verify:** the planet look (see `docs/VISUAL_VERIFICATION.md` M1 checklist —
   galaxy=suns+links only, suns≫planets, ~5 planets bloom per sun on zoom-in, both networks).
-- **Next:** **M2 — UI shell** (per owner: build the UI next). Global dock (CRM/Finance/Research →
-  camera glide), context side-panel showing planet data (consumes the `Planet` component spawned in
-  M1c), floating 3D action buttons, one-click session log. Detailed checklist in the M2 section below.
+- **M2 — UI shell: egui slice landed.** Global dock (CRM/Finance/Research/Galaxy jumps), context
+  side-panel now lists the selected node's five profile planets + hosts one-click session-log buttons
+  (`UiRequestSessionLog` → `on_session_log` → `ops::session_log`). Tree green: `nbe_app` 22 ✓, clippy
+  clean, builds. **Remaining M2 slice:** floating 3D world action buttons (`WorldButton` + extend
+  picking) — deferred for owner GPU (the action already works from the side panel).
+- **Next:** finish M2's 3D world buttons, then **M3 — data-driven life** (material states from session
+  balance / renewal proximity; session-log → travelling dendrite pulse).
 - Branch: `claude/soma-dendrite-connections-9oq6rp`.
 
 ---
@@ -100,13 +104,18 @@ struct Anatomy { aspects: Vec<Aspect> }   // exactly 5 per sun, fixed order
 
 ---
 
-## M2 — UI shell  `[ ]`  *(build next, per owner)*
-- [ ] Global dock (`ui.rs` `dock_ui`): CRM/Finance/Research buttons → `CameraGlide.to(network_view)`.
-- [ ] Context side-panel: extend `detail_panel_ui`/`Picker` to show planet data + host action buttons.
-- [ ] Floating 3D action buttons ("Log Session") via `Billboard`+`face_camera`+`LodReveal`+`WorldButton`;
-      extend picking to hit them.
-- [ ] One-click session log/decrement: `UiRequestSessionLog` → `on_session_log` → new
-      `ops::session_log` → `recompute_renewal()` → `SceneControl.reload`.
+## M2 — UI shell  `[~]`  *(egui slice landed; 3D world buttons remain)*
+- [x] Global dock (`ui.rs` `dock_ui`): top strip with CRM/Finance/Research/Galaxy → `CameraGlide`
+      to the network view (Finance also flips the right panel to the Forecast report).
+- [x] Context side-panel: `detail_panel_ui` now lists the selected node's five **profile planets**
+      (aspect label + present dot + value bar, from `NodeInfo.aspects`) and, for clients, hosts the
+      one-click session-log action buttons.
+- [ ] **Floating 3D action buttons** ("Log Session") via `Billboard`+`face_camera`+`LodReveal`+
+      `WorldButton`; extend picking to hit them. *Deferred — the picking-feel needs the owner's GPU;
+      the action is already reachable from the side panel. This is the remaining M2 slice.*
+- [x] One-click session log/decrement: `UiRequestSessionLog{node,outcome}` → `on_session_log` →
+      `ops::session_log` (already exists; calls `recompute_renewal`) → `SceneControl.reload`.
+      `SessionOutcome` enum (Completed/NoShow/Cancelled) maps to the DB status; unit-tested.
 
 ## M3 — Data-driven life  `[ ]`
 - [ ] Material states from session balance + renewal proximity (extend `recompute_activations`); ≤

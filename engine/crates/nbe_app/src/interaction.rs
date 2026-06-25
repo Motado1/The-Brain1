@@ -37,6 +37,35 @@ pub(crate) fn actions_for_kind(kind: Kind) -> Vec<NodeAction> {
     }
 }
 
+/// Outcome of a one-click session log from the UI (the M2 "Log Session" action). Maps to the DB
+/// status strings `ops::session_log` expects.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SessionOutcome {
+    Completed,
+    NoShow,
+    Cancelled,
+}
+
+impl SessionOutcome {
+    /// The `status` string the CLI/`ops` layer stores for this outcome.
+    pub(crate) fn db_status(self) -> &'static str {
+        match self {
+            SessionOutcome::Completed => "completed",
+            SessionOutcome::NoShow => "no_show",
+            SessionOutcome::Cancelled => "cancelled",
+        }
+    }
+
+    /// Short button label.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            SessionOutcome::Completed => "✔ Log session",
+            SessionOutcome::NoShow => "✘ No-show",
+            SessionOutcome::Cancelled => "⊘ Cancel",
+        }
+    }
+}
+
 /// Hover/linger state that drives the spatial action buttons.
 #[derive(Resource, Default)]
 pub(crate) struct InteractionState {
@@ -100,6 +129,13 @@ pub(crate) struct UiRequestEdit {
 #[derive(Message)]
 pub(crate) struct UiRequestDissolve {
     pub(crate) node: usize,
+}
+
+/// One-click "log a session" against a client node (M2). `node` indexes `NodeRegistry::nodes`.
+#[derive(Message)]
+pub(crate) struct UiRequestSessionLog {
+    pub(crate) node: usize,
+    pub(crate) outcome: SessionOutcome,
 }
 
 /// Open the DB, run a mutation, and format the outcome for the status line (best-effort).
@@ -180,6 +216,30 @@ pub(crate) fn on_dissolve(
     }
 }
 
+/// Log a session for a client from the UI: route to `ops::session_log` (which decrements the active
+/// package + re-derives the renewal date) and request a scene reload so the brain reflects it.
+pub(crate) fn on_session_log(
+    mut reader: MessageReader<UiRequestSessionLog>,
+    registry: Res<NodeRegistry>,
+    db_path: Res<DbPath>,
+    mut control: ResMut<SceneControl>,
+) {
+    for ev in reader.read() {
+        let Some(node) = registry.nodes.get(ev.node) else {
+            continue;
+        };
+        if node.kind != Kind::Client {
+            control.status = "session log: not a client".into();
+            continue;
+        }
+        let (id, status) = (node.id.clone(), ev.outcome.db_status());
+        control.status = run_db(&db_path.0, |db| {
+            nbe_cli::ops::session_log(db, &id, None, status, None, crate::now_unix())
+        });
+        control.reload = true;
+    }
+}
+
 // ---- 3. apoptosis lifecycle -------------------------------------------------------------
 
 /// A node mid-deletion: fading out before it's despawned. Sim systems ignore `With<Dissolving>`.
@@ -241,6 +301,21 @@ pub(crate) fn update_financial_scale(mut q: Query<(&ClientRevenue, &mut TargetVi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_outcome_maps_to_db_status() {
+        assert_eq!(SessionOutcome::Completed.db_status(), "completed");
+        assert_eq!(SessionOutcome::NoShow.db_status(), "no_show");
+        assert_eq!(SessionOutcome::Cancelled.db_status(), "cancelled");
+        // Labels are distinct and non-empty.
+        let labels = [
+            SessionOutcome::Completed.label(),
+            SessionOutcome::NoShow.label(),
+            SessionOutcome::Cancelled.label(),
+        ];
+        assert!(labels.iter().all(|l| !l.is_empty()));
+        assert_eq!(labels.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+    }
 
     #[test]
     fn actions_depend_on_kind() {

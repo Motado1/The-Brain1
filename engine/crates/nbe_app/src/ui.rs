@@ -6,6 +6,7 @@ use nbe_cli::money::format_cents;
 
 use crate::components::*;
 use crate::domain::*;
+use crate::interaction::{SessionOutcome, UiRequestSessionLog};
 use crate::nav::*;
 use crate::now_unix;
 use crate::panel::*;
@@ -13,6 +14,46 @@ use crate::search::fuzzy_rank;
 use crate::tuning::*;
 
 // ---- UI + camera -----------------------------------------------------------------------
+
+/// Global navigation dock (top strip): one-click jumps to the three regions of the brain. CRM and
+/// Research frame their network; Finance frames the business cluster and flips the right-hand panel
+/// to the Forecast report so the money view is one click away.
+pub(crate) fn dock_ui(
+    mut contexts: EguiContexts,
+    registry: Res<NodeRegistry>,
+    mut glide: ResMut<CameraGlide>,
+    mut panel: ResMut<BusinessPanel>,
+    db_path: Res<DbPath>,
+) {
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+    egui::TopBottomPanel::top("dock").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("The Brain").strong());
+            ui.separator();
+            ui.label("Jump to:");
+            if ui.button("🧑 CRM").clicked() {
+                let (c, r) = registry.network_view(Network::Business);
+                glide.to(c, r);
+            }
+            if ui.button("💰 Finance").clicked() {
+                let (c, r) = registry.network_view(Network::Business);
+                glide.to(c, r);
+                panel.tab = BizTab::Forecast;
+                panel.text = run_report(&db_path.0, BizTab::Forecast);
+            }
+            if ui.button("📚 Research").clicked() {
+                let (c, r) = registry.network_view(Network::Research);
+                glide.to(c, r);
+            }
+            ui.separator();
+            if ui.button("🌌 Galaxy").clicked() {
+                glide.to(registry.galaxy_center, registry.galaxy_radius * 1.35);
+            }
+        });
+    });
+}
 
 pub(crate) fn sidebar_ui(
     mut contexts: EguiContexts,
@@ -173,30 +214,68 @@ pub(crate) fn business_panel_ui(
         });
 }
 
-/// Floating detail panel for the selected node — its full `ops::show` view. Click a neuron to open.
+/// Floating detail panel for the selected node — its profile "planets" (aspects), one-click session
+/// actions for clients, and the full `ops::show` view. Click a neuron to open.
 pub(crate) fn detail_panel_ui(
     mut contexts: EguiContexts,
     registry: Res<NodeRegistry>,
     mut picker: ResMut<Picker>,
+    mut log_tx: MessageWriter<UiRequestSessionLog>,
 ) {
     let Ok(ctx) = contexts.ctx_mut() else {
         return;
     };
-    let Some(node) = picker.selected.and_then(|i| registry.nodes.get(i)) else {
+    let Some(sel) = picker.selected else {
+        return;
+    };
+    let Some(node) = registry.nodes.get(sel) else {
         return;
     };
     let title = node.name.clone();
+    let is_client = node.kind == Kind::Client;
+    let aspects = &node.aspects;
     let mut open = true;
+    let mut outcome: Option<SessionOutcome> = None;
     egui::Window::new(format!("🔎 {title}"))
         .anchor(egui::Align2::LEFT_BOTTOM, [12.0, -12.0])
         .default_width(320.0)
         .resizable(false)
         .open(&mut open)
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+            // Profile planets, as text: a filled dot + value bar for present aspects, a hollow dot
+            // for the dim placeholders.
+            if !aspects.is_empty() {
+                ui.label(egui::RichText::new("Profile").strong());
+                for a in aspects {
+                    ui.horizontal(|ui| {
+                        ui.monospace(if a.present { "●" } else { "○" });
+                        ui.label(&a.label);
+                        if a.present {
+                            ui.add(egui::ProgressBar::new(a.value).desired_width(70.0));
+                        }
+                    });
+                }
+                ui.separator();
+            }
+            // One-click session logging for clients → routes through `ops::session_log`.
+            if is_client {
+                ui.label(egui::RichText::new("Log a session").strong());
+                ui.horizontal_wrapped(|ui| {
+                    for o in [SessionOutcome::Completed, SessionOutcome::NoShow, SessionOutcome::Cancelled] {
+                        if ui.button(o.label()).clicked() {
+                            outcome = Some(o);
+                        }
+                    }
+                });
+                ui.separator();
+            }
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 ui.monospace(&picker.detail);
             });
         });
+    if let Some(o) = outcome {
+        log_tx.write(UiRequestSessionLog { node: sel, outcome: o });
+    }
     if !open {
         picker.selected = None;
         picker.detail.clear();

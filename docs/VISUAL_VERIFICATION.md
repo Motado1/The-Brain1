@@ -1,5 +1,20 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — M2 UI shell: dock + planet-aware detail panel + one-click session log (2026-06-25)
+The egui slice of the UI shell. A **top dock** offers one-click region jumps; the **detail panel**
+(click a neuron) now reads the node's profile and lets you log a session for a client without the CLI.
+- [ ] **Top dock** shows `The Brain · Jump to: CRM · Finance · Research · Galaxy`. Each button glides
+      the camera: CRM→business cluster, Research→research cluster, Galaxy→whole brain. **Finance** also
+      flips the right-hand Business panel to the **Forecast** report.
+- [ ] **Detail panel — Profile section:** clicking a client shows its five aspects (Goals/Diet/Injury/
+      Schedule/Contact) each with a ● (filled) / ○ (empty) dot and a value bar for present ones;
+      clicking a note shows Body/Status/Mentions/Topics/References. Matches the planets at its tips.
+- [ ] **One-click session log:** the client panel has `✔ Log session · ✘ No-show · ⊘ Cancel`. Clicking
+      one logs a session (decrements the active package, re-derives the renewal) and the scene reloads;
+      the status line + Business panel reports reflect it. Verify the renewal/forecast actually moves.
+- [ ] Dock doesn't fight the left/right side panels for space (top strip sits above them cleanly).
+- Knobs: dock labels/order in `ui.rs` `dock_ui`; panel layout in `detail_panel_ui`.
+
 ## 🟢 NEW — profile "planet" nodes at the dendrite tips (M1, 2026-06-25)
 Each client/note **sun** now grows ~5 small **planet** billboards at its dendrite tips — the profile
 "aspects" (client: Goals/Diet/Injury/Schedule/Contact; note: Body/Status/Mentions/Topics/References),

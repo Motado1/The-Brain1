@@ -119,6 +119,7 @@ fn main() {
         .add_message::<UiRequestLink>()
         .add_message::<UiRequestEdit>()
         .add_message::<UiRequestDissolve>()
+        .add_message::<UiRequestSessionLog>()
         .add_systems(
             Startup,
             (setup_soma_assets.before(load_graph), load_graph, setup_hud, spawn_lights),
@@ -127,6 +128,7 @@ fn main() {
             EguiPrimaryContextPass,
             (
                 configure_theme,
+                dock_ui,
                 sidebar_ui,
                 business_panel_ui,
                 detail_panel_ui,
@@ -170,6 +172,7 @@ fn main() {
                 on_link,
                 on_edit,
                 on_dissolve,
+                on_session_log,
             ),
         );
 

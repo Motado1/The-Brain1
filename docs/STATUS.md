@@ -14,8 +14,14 @@ packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current 
   **planet** billboards at the dendrite tips (per-network `PlanetMats`, `Planet` component for M2),
   and `tuning.rs` carries the `PLANET_*` scale/LOD consts. The old session-bead/package-twig anatomy
   is gone. Tree green: `nbe_data` 13 ✓, `nbe_cli` 34 ✓, `nbe_app` 21 ✓, clippy clean, builds.
-- **Resume at M2 — UI shell** (per owner, build the UI next): see ROADMAP "M2". Also pending: owner
-  GPU verify of the planet look (`docs/VISUAL_VERIFICATION.md` M1 checklist).
+- **M2 — UI shell: egui slice landed.** Top **dock** (CRM/Finance/Research/Galaxy camera jumps;
+  Finance also flips the Business panel to Forecast); **detail panel** now lists the selected node's
+  five profile planets (`NodeInfo.aspects`) and, for clients, hosts one-click **session-log** buttons
+  (`UiRequestSessionLog`/`SessionOutcome` → `on_session_log` → `ops::session_log` → reload). `nbe_app`
+  22 ✓, clippy clean, builds. **Remaining M2:** floating 3D `WorldButton`s + picking (deferred for
+  owner GPU; the action already works from the panel).
+- **Resume:** finish M2's 3D world buttons, then M3 (data-driven life). Pending owner GPU verify of
+  both the planet look (M1) and the UI shell (M2) — see `docs/VISUAL_VERIFICATION.md`.
 
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 

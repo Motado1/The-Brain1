@@ -49,6 +49,7 @@ impl AspectKind {
 
 /// One planet's worth of data: which fact, a short label, a 0..1 intensity (drives planet brightness/
 /// scale), and whether the fact is actually filled in (absent → a dim placeholder so layout is stable).
+#[derive(Clone)]
 pub(crate) struct Aspect {
     pub(crate) kind: AspectKind,
     pub(crate) label: String,
@@ -57,7 +58,7 @@ pub(crate) struct Aspect {
 }
 
 /// Exactly five aspects per sun, in fixed order.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Anatomy {
     pub(crate) aspects: Vec<Aspect>,
 }
