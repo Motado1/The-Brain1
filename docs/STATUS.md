@@ -4,6 +4,16 @@
 > **Branch:** `main` — all work lives here now (the old feature branches were consolidated in and
 > removed). Commit & push straight to `main`.
 
+## 🧭 ACTIVE WORK — see `docs/ROADMAP.md` (master plan + progress tracker)
+The app's full roadmap (galaxy/solar-system structure → UI shell → data-driven life → finance →
+packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current branch for this work:
+`claude/soma-dendrite-connections-9oq6rp`** (not `main`).
+- **Done + pushed:** soma GLB variants + engine re-skin; colorless glass tubes; **M1a = client
+  `profile` facet** (schema V3 → repo → snapshot → seed → ops/CLI → tests; commit `48b1b24`).
+- **Resume at M1b** (aspect data in `anatomy.rs`) — fully specced in ROADMAP "M1b"; then M1c
+  (`embed_planets` in `scene.rs`) + M1d (scale consts), which must land together (they're
+  compile-coupled). Tree is green now.
+
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 
 **The long-standing "tubes render SOLID" blocker was addressed by starting the connections over** (owner

@@ -15,6 +15,15 @@ Owner decisions baked in: client planets = **profile data** (goals/diet/injury);
 now / radial viz later**; AI = **heuristics now / local LLM deferred**; after the structure lands,
 build the **UI shell** first.
 
+## ▶ Current position (resume here)
+- **Done + pushed:** M1a (`profile` facet, commit `48b1b24`). Tree is green
+  (`cargo test -p nbe_data` 13 ✓, `-p nbe_cli` 34 ✓, clippy clean, whole workspace compiles).
+- **Next:** M1b (aspect data in `anatomy.rs`) → M1c (`embed_planets` in `scene.rs`) → M1d (scale
+  consts). M1b+M1c+M1d must land together — rewriting `anatomy.rs` breaks `scene.rs::embed_anatomy`
+  at compile time, so do all three before `cargo check -p nbe_app`. Detailed design is in those
+  sections below (worked out, ready to implement). After M1, do M2 (UI shell).
+- Branch: `claude/soma-dendrite-connections-9oq6rp`.
+
 ---
 
 ## M1 — Client solar-system structure + profile facet  `[~]`
@@ -37,20 +46,54 @@ zoomed out = galaxy view).
       tests green, clippy clean, whole workspace compiles.
 
 ### M1b — aspect data (`anatomy.rs`, pure + tested) `[ ]`
-- [ ] Replace `Anatomy { sessions, packages, research_proxies }` with a fixed-order `Aspect` list
-      (`AspectKind`, label, value 0..1, present). Client aspects from profile/slots/crm; knowledge
-      aspects (Body/Status/Mentions/Topics/References) from KnowledgeFacet + edges.
-- [ ] Rewrite tests (count/order/present/value-bounds/determinism, both networks).
+Replace `Anatomy { sessions, packages, research_proxies }` with a fixed-order aspect list. Concrete
+design (already worked out — implement as-is):
+```rust
+enum AspectKind { Goals, Diet, Injury, Schedule, Contact,        // client sun, in this order
+                  Body, Status, Mentions, Topics, References }    // knowledge sun, in this order
+struct Aspect  { kind: AspectKind, label: String, value: f32 /*0..1*/, present: bool }
+struct Anatomy { aspects: Vec<Aspect> }   // exactly 5 per sun, fixed order
+```
+`build_anatomy(snap) -> HashMap<String, Anatomy>` (needs `snap.profile` from M1a):
+- Index: profile by id, knowledge by id, `client_ids: HashSet`, cadence sum per client from
+  `snap.slots`, and edge tallies (mentions/topics by `source_id`, references by `target_id`).
+- **Client** (each `snap.crm`): Goals/Diet/Injury via `text_aspect` from `ProfileFacet`
+  (present = non-empty trimmed text, value 1.0/0.0); Schedule = `cadence` (value `cad/3.0` clamped,
+  label `"{cad:.1}x/wk"`, present `cad>0`); Contact = `contact` text present, value by lifecycle
+  (renewal 1.0 / active 0.6 / lead 0.4 / else 0.2).
+- **Knowledge** (each `snap.knowledge` whose id ∉ client_ids): Body = `body_md` char count
+  (value `len/400` clamped); Status = review_status (reviewed 1.0 / draft 0.4 / archived 0.15);
+  Mentions/Topics/References via `count_aspect` (value `n/scale` clamped, scales 5/5/8).
+- Empty client still emits all 5 (present=false) so layout is stable. Client takes precedence over
+  a knowledge facet on the same id.
+- [ ] Tests: client 5-aspect fixed order + present flags + value bounds; knowledge edge counts;
+      client-with-knowledge-facet → client set; empty client → 5 present=false. Drop the old
+      `anatomy_groups_*` test.
 
 ### M1c — planets at tips (`scene.rs` `embed_anatomy` → `embed_planets`) `[ ]`
-- [ ] Place each aspect at a distinct deterministic dendrite leaf tip; render as the sun nucleus+halo
-      billboard pattern scaled small; `LodReveal`; `Planet { sun, aspect, value, label }` component.
-- [ ] Do NOT add planets to `groups`/`index`/`BrainGraph`/`network_links` (topology preserved).
-- [ ] Delete the old trunk-bead loop.
+- [ ] `embed_planets(commands, halo_quad, planet_mats, branches, an, sun_entity, sun_r)`: tips =
+      `branches.filter(|b| b.leaf).filter_map(|b| b.points.last())`; guard empty; place
+      `aspects[i]` at `tips[(i*tips.len()/n) % tips.len()]`. Per aspect spawn a nucleus billboard
+      (+ optional small halo) reusing the sun nucleus pattern (scene.rs ~501-540): `Mesh3d(halo_quad)`,
+      additive `core_mat`, `Billboard`, `LodReveal { base_scale: PLANET_BASE*(0.6+0.4*value) [or 0.35
+      if !present], start: PLANET_LOD_START, full: PLANET_LOD_FULL }`, `Planet { sun: sun_entity,
+      aspect: kind, value, label }`, `SceneItem`.
+- [ ] Materials: build a shared `PlanetMats` palette keyed by `AspectKind` (10 mats, like the old
+      `AnatomyMats`) once in `build_scene`, colored from each network's `theme_rgb` + per-aspect hue
+      offset; replaces `AnatomyMats` (now unused). Share across planets (don't `materials.add` per node).
+- [ ] Call site (~scene.rs 581): pass `node` (sun entity) + `r`. Do NOT add planets to
+      `groups`/`index`/`BrainGraph`/`network_links` (topology preserved by construction).
+- [ ] Add `Planet { sun: Entity, aspect: AspectKind, value: f32, label: String }` to `components.rs`
+      (used by M2 hover/select labels + optional M3 flare). Delete the old trunk-bead loop + the
+      `session_*`/`package_*`/`research` parts of `AnatomyMats`.
 
 ### M1d — scale/vastness (`tuning.rs`) `[ ]`
-- [ ] `PLANET_BASE`, `PLANET_HALO_REL`, `PLANET_LOD_START/FULL` (~3:1 sun:planet, planets bloom after
-      the dendrite thicket, hidden at galactic zoom). Optional `LOD_GALACTIC_DIST`/`density_radii`.
+- [ ] `PLANET_BASE=0.30`, `PLANET_HALO_REL=2.2`, `PLANET_LOD_START=0.45`, `PLANET_LOD_FULL=0.75`
+      (~3:1 sun:planet, planets bloom after the dendrite thicket since START>`DEND_LOD_START`=0.30,
+      hidden at galactic zoom). Optional vastness: widen `LOD_GALACTIC_DIST`/`density_radii`.
+- [ ] Gate: `cargo test -p nbe_app` + `clippy` + `cargo check -p nbe_app`; update
+      `docs/VISUAL_VERIFICATION.md` with the owner checklist (galaxy=suns+links only; suns≫planets;
+      zoom-in blooms ~5 profile planets per client at tips, parent-only; both networks).
 
 ---
 
