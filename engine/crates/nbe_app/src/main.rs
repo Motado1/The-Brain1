@@ -156,6 +156,7 @@ fn main() {
                 drive_dendrite_waves,
                 drift_motes,
                 apply_reload,
+                report_soma_load,
             ),
         )
         .add_systems(

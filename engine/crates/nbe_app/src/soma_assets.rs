@@ -4,6 +4,7 @@
 //! startup and distributed across neurons by `pick_variant` so every network has visual variety,
 //! while the glowing nucleus + halo billboards (spawned separately) read through the glass.
 
+use bevy::asset::LoadState;
 use bevy::gltf::GltfAssetLabel;
 use bevy::prelude::*;
 
@@ -18,11 +19,40 @@ pub(crate) struct SomaAssets {
 /// each neuron's `SceneRoot` a frame or two later once its GLB finishes decoding; a missing file just
 /// logs and leaves that variant empty (the neuron still has its nucleus + halo).
 pub(crate) fn setup_soma_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
+    info!("soma_assets: loading 6 GLB variants from assets/models/soma_01..06.glb");
     let variants = std::array::from_fn(|i| {
         let path = format!("models/soma_{:02}.glb", i + 1);
         asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))
     });
     commands.insert_resource(SomaAssets { variants });
+}
+
+/// Diagnostic: once every soma variant has reached a terminal load state, log each one's result
+/// exactly once. If you see "SOMA GLB STATUS" with six `LOADED` lines, the GLB pipeline is live and
+/// connected; `FAILED` points at a path/asset-root problem; if the block never appears at all, the
+/// running binary is built from older code (pull the latest commit and rebuild).
+pub(crate) fn report_soma_load(
+    asset_server: Res<AssetServer>,
+    soma: Option<Res<SomaAssets>>,
+    mut reported: Local<bool>,
+) {
+    if *reported {
+        return;
+    }
+    let Some(soma) = soma else { return };
+    let mut lines: Vec<String> = Vec::with_capacity(soma.variants.len());
+    for (i, h) in soma.variants.iter().enumerate() {
+        match asset_server.get_load_state(h.id()) {
+            Some(LoadState::Loaded) => lines.push(format!("soma_{:02}.glb: LOADED", i + 1)),
+            Some(LoadState::Failed(e)) => lines.push(format!("soma_{:02}.glb: FAILED — {e}", i + 1)),
+            _ => return, // still loading — wait until all six are terminal, then report together
+        }
+    }
+    info!("=== SOMA GLB STATUS ({} variants) ===", lines.len());
+    for l in &lines {
+        info!("  {l}");
+    }
+    *reported = true;
 }
 
 /// Pick one of the six soma variants for a node from its id hash — a cheap, stable spread so the same
