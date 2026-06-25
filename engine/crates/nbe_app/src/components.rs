@@ -176,6 +176,16 @@ pub(crate) struct LodReveal {
 #[derive(Component)]
 pub(crate) struct SceneItem;
 
+/// Carries the per-network glass membrane material to apply onto a soma's imported GLB meshes once its
+/// scene instance spawns. The GLB ships opaque-white materials; `apply_soma_skin` walks the spawned
+/// children and swaps them for this `SomaMaterial` so the body reads as glowing translucent glass.
+#[derive(Component)]
+pub(crate) struct SomaSkin(pub(crate) Handle<crate::shaders::SomaMaterial>);
+
+/// Marks a soma whose GLB meshes have already been re-skinned, so `apply_soma_skin` runs once each.
+#[derive(Component)]
+pub(crate) struct SomaSkinned;
+
 /// Cross-system signal + status line for button actions that change the DB and need a redraw.
 #[derive(Resource, Default)]
 pub(crate) struct SceneControl {

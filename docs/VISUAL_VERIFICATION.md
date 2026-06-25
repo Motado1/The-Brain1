@@ -28,8 +28,17 @@ before `load_graph`). **No procedural fallback** — missing files leave only th
 - [ ] **Scale/orientation sanity** → no giant/tiny/offset somas (confirms radius-1.0-at-origin export
       + applied transforms). If any look wrong, it's an export-transform issue, not the engine.
 - [ ] **Firing still glows/flares** from the nucleus through the membrane; soma breathes.
-- Note: per-region tint of the *imported body* still isn't applied (network colour comes from the
-  nucleus core). The bodies were authored neutral so this can be added later if wanted.
+- ✅ CONFIRMED on RTX (2026-06-25): GLB variants load + render (oblate/egg shapes visible; distinct
+  per node). Earlier "looks unchanged" was a **stale checkout** running the old procedural soma.
+- **Engine re-skin added** (`apply_soma_skin`): the GLBs ship opaque-white materials, so each soma's
+  meshes are swapped in-engine for the glass `SomaMaterial` (Fresnel rim, clear centre) tinted per
+  network (amber CRM / blue Research) — `SOMA_RIM_INTENSITY`/`SOMA_RIM_ALPHA` in tuning. Restores the
+  glowing translucent membrane + adds per-region tint, keeping the GLB shapes.
+  - [ ] Somas now read as **glowing translucent glass** (not opaque white pills); nucleus shines
+        through the centre; rim glows the network hue (amber vs blue).
+  - [ ] Tune `SOMA_RIM_INTENSITY` (1.5) / `SOMA_RIM_ALPHA` (0.42) if too faint/too solid.
+  - Diagnostic `report_soma_load` logs "=== SOMA GLB STATUS ===" (6× LOADED) at startup — can be
+    removed once you're confident the pipeline is stable.
 
 
 ## 🟡 VERIFY NEXT — connections as ORGANIC biological processes (thin, bumpy, alive) (2026-06-19)

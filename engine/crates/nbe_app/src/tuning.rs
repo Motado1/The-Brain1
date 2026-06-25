@@ -52,6 +52,15 @@ pub(crate) const TUBE_RIM_ALPHA: f32 = 0.45;
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
 /// Drop if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
+
+// ---- soma membrane skin (engine override of the imported GLB material) -------------------
+// The imported GLB ships opaque-white materials; `apply_soma_skin` re-skins each soma mesh in-engine
+// with the same glass Fresnel membrane the tubes wear, tinted per network, so the body reads as
+// glowing bioluminescent glass with the nucleus shining through — and CRM/Research stay colour-themed.
+/// Soma rim glow brightness.
+pub(crate) const SOMA_RIM_INTENSITY: f32 = 1.5;
+/// Soma rim opacity — low so the membrane stays clearly translucent (nucleus glows through the centre).
+pub(crate) const SOMA_RIM_ALPHA: f32 = 0.42;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.

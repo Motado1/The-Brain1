@@ -184,7 +184,7 @@ pub(crate) fn load_graph(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    _somas: ResMut<Assets<SomaMaterial>>,
+    mut somas: ResMut<Assets<SomaMaterial>>,
     mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
@@ -195,6 +195,7 @@ pub(crate) fn load_graph(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        somas.as_mut(),
         waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
@@ -213,7 +214,7 @@ pub(crate) fn apply_reload(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    _somas: ResMut<Assets<SomaMaterial>>,
+    mut somas: ResMut<Assets<SomaMaterial>>,
     mut waves: ResMut<Assets<DendriteMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut registry: ResMut<NodeRegistry>,
@@ -232,12 +233,47 @@ pub(crate) fn apply_reload(
         &mut commands,
         meshes.as_mut(),
         materials.as_mut(),
+        somas.as_mut(),
         waves.as_mut(),
         images.as_mut(),
         registry.as_mut(),
         &soma_assets,
         &db_path.0,
     );
+}
+
+/// Re-skin each soma's imported GLB meshes with its network glass membrane. The GLBs ship
+/// opaque-white `StandardMaterial`s; once Bevy has instantiated a soma's scene (a frame or two after
+/// the `SceneRoot` spawns), this walks the spawned descendants and swaps every mesh's material for the
+/// `SomaMaterial` carried in `SomaSkin` — so the body reads as glowing translucent glass (Fresnel rim,
+/// clear centre, network hue) with the nucleus shining through. Runs once per soma (`SomaSkinned`
+/// marker); reload-safe, since a rebuild spawns fresh somas that get re-skinned in turn.
+pub(crate) fn apply_soma_skin(
+    mut commands: Commands,
+    roots: Query<(Entity, &SomaSkin), Without<SomaSkinned>>,
+    children: Query<&Children>,
+    is_mesh: Query<(), With<Mesh3d>>,
+) {
+    for (root, skin) in &roots {
+        let mut retinted = false;
+        let mut stack = vec![root];
+        while let Some(e) = stack.pop() {
+            if is_mesh.get(e).is_ok() {
+                commands
+                    .entity(e)
+                    .remove::<MeshMaterial3d<StandardMaterial>>()
+                    .insert(MeshMaterial3d(skin.0.clone()));
+                retinted = true;
+            }
+            if let Ok(ch) = children.get(e) {
+                stack.extend_from_slice(ch);
+            }
+        }
+        // Only mark done once the scene has actually instantiated meshes — otherwise retry next frame.
+        if retinted {
+            commands.entity(root).insert(SomaSkinned);
+        }
+    }
 }
 
 /// Load the DB and spawn both networks (nodes, edges, sparks), all tagged `SceneItem`. Returns the
@@ -248,6 +284,7 @@ fn build_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    somas: &mut Assets<SomaMaterial>,
     waves: &mut Assets<DendriteMaterial>,
     images: &mut Assets<Image>,
     registry: &mut NodeRegistry,
@@ -413,6 +450,21 @@ fn build_scene(
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut radius_of: HashMap<String, f32> = HashMap::new();
 
+    // Per-network glass membrane skin for the imported GLB somas (same Fresnel cell-wall as the tubes,
+    // tinted by the network hue). `apply_soma_skin` swaps it onto each soma's GLB meshes once they
+    // instantiate, so the body glows as translucent bioluminescent glass instead of opaque GLB white.
+    let mut soma_of: HashMap<Network, Handle<SomaMaterial>> = HashMap::new();
+    for net in Network::ALL {
+        let (r, g, b) = theme_rgb(net);
+        soma_of.insert(
+            net,
+            somas.add(SomaMaterial {
+                rim_color: LinearRgba::new(r, g, b, 1.0),
+                params: Vec4::new(RIM_POWER, SOMA_RIM_INTENSITY, SOMA_RIM_ALPHA, 0.0),
+            }),
+        );
+    }
+
     // Nearest-neighbour count for the connective web (used by the edge loop below).
     const NEIGHBOURS: usize = 3;
 
@@ -496,6 +548,7 @@ fn build_scene(
                 SceneRoot(soma_assets.variants[variant].clone()),
                 Transform::from_translation(p).with_scale(Vec3::splat(r)),
                 Breath { base: Vec3::splat(r), phase, speed },
+                SomaSkin(soma_of[&network].clone()),
                 SceneItem,
             ));
 

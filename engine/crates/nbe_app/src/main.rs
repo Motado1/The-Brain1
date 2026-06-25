@@ -165,6 +165,7 @@ fn main() {
                 update_interaction,
                 purge_dissolving,
                 update_financial_scale,
+                apply_soma_skin,
                 on_sprout,
                 on_link,
                 on_edit,
