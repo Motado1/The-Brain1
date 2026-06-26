@@ -11,13 +11,13 @@ pub(crate) const FIRE_DECAY: f32 = 2.2;
 pub(crate) const FLARE_GAIN: f32 = 2.2;
 /// How much a fired neuron's halo swells at peak.
 pub(crate) const HALO_SWELL: f32 = 0.4;
-/// Soma "breath" size amplitude (fraction). Kept SMALL so flush-rooted connections stay welded to the
-/// membrane as it pulses — most of the alive feeling comes from `BREATH_GLOW_AMP`, not size. Dendrites
-/// scale about their soma by this same factor (`animate_breath_with`), so their roots track the surface.
-pub(crate) const BREATH_AMP: f32 = 0.03;
-/// Soma "breath" glow amplitude — the nucleus brightens/dims by this fraction, in sync with the (now
-/// subtle) size pulse, so the cell body reads as breathing *light* without moving the membrane far.
-pub(crate) const BREATH_GLOW_AMP: f32 = 0.30;
+/// Soma "breath" size amplitude (fraction). Disabled (0.0) — the owner didn't want breathing, and with
+/// it off everything is static + welded (no seam mismatch). The subtle idle twinkle keeps it alive.
+/// Raise (e.g. 0.02–0.05) to re-enable physical breathing; dendrites scale in sync via `animate_breath_with`.
+pub(crate) const BREATH_AMP: f32 = 0.0;
+/// Soma "breath" glow amplitude — nucleus brightness pulse synced to the size breath. Disabled with it;
+/// raise (e.g. 0.2–0.4) to bring back a breathing *light* without moving the membrane.
+pub(crate) const BREATH_GLOW_AMP: f32 = 0.0;
 /// Energy a propagation pulse deposits in its target (threshold ~0.5, so it takes coincidence to
 /// re-fire — cascades stay sparse and fade).
 pub(crate) const PULSE_ENERGY: f32 = 0.16;
@@ -55,17 +55,17 @@ pub(crate) const RIM_POWER: f32 = 2.5;
 /// Tube rim glow brightness.
 pub(crate) const TUBE_RIM_INTENSITY: f32 = 0.9;
 /// Tube rim opacity — lower = more see-through glass.
-pub(crate) const TUBE_RIM_ALPHA: f32 = 0.45;
+pub(crate) const TUBE_RIM_ALPHA: f32 = 0.28;
 /// Emissive multiplier applied where a pulse is active — massive (HDR) so the flooded segment blooms.
 /// Drop if the travelling crest blows out to white.
 pub(crate) const DEND_PULSE_EMISSIVE: f32 = 5.0;
 /// Faint colorless (white) Fresnel-rim level shown on an idle tube so the clear-glass wiring is still
 /// visible when far from any soma and no pulse is passing. Raise for more visible idle tubes, drop
 /// toward 0 to make the wiring nearly invisible until lit.
-pub(crate) const TUBE_GLASS_RIM: f32 = 0.12;
+pub(crate) const TUBE_GLASS_RIM: f32 = 0.06;
 /// How far the soma's light bleeds along a tube from its soma end (fraction of the tube's length, u).
 /// The cell body's hue fills the tube up to here, then fades to colorless glass.
-pub(crate) const SOMA_BLEED_FALLOFF: f32 = 0.4;
+pub(crate) const SOMA_BLEED_FALLOFF: f32 = 0.65;
 
 // ---- soma membrane skin (engine override of the imported GLB material) -------------------
 // The imported GLB ships opaque-white materials; `apply_soma_skin` re-skins each soma mesh in-engine
@@ -78,7 +78,7 @@ pub(crate) const SOMA_RIM_ALPHA: f32 = 0.42;
 /// Connector funnel mouth: the wide radius (fraction of soma radius) where the tube fuses into the
 /// cell body — the membrane flowing out into the tunnel. With ROOT_EMBED ~0.92 this mouth lands on
 /// the membrane surface, so it reads as continuous rather than a pipe poking into a sphere.
-pub(crate) const ROOT_FLARE: f32 = 0.022;
+pub(crate) const ROOT_FLARE: f32 = 0.06;
 /// Slender connector body radius (absolute) between the two funnels — the tunnel itself. Kept very
 /// thin so the additive strand reads as a glowing *line* (thin twigs already read right today).
 pub(crate) const CONN_BODY: f32 = 0.018;
@@ -87,10 +87,10 @@ pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
 pub(crate) const ROOT_FLARE_POW: f32 = 2.6;
 /// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). A connection
-/// is the soma *reaching out* — it grows FROM the membrane, not into it. Rooted just at the surface
-/// (1.0 − `BREATH_AMP`, so it sits flush at the breath's tightest and is covered otherwise) and flared
-/// outward, so it reads as a process emerging from the cell wall — never an embedded pipe.
-pub(crate) const ROOT_EMBED: f32 = 0.97;
+/// is the soma *reaching out*. Rooted just *inside* the translucent membrane glow (0.9) with a wide
+/// `ROOT_FLARE` mouth, so the tube emerges OUT of the cell-body haze — fused, continuous — instead of
+/// dead-ending as a hard pipe at a sharp rim. Lower = emerges from deeper in the glow.
+pub(crate) const ROOT_EMBED: f32 = 0.9;
 
 // ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
 /// Where a dendrite trunk begins, as a fraction of the soma radius — near the surface so the tree

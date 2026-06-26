@@ -1,26 +1,28 @@
 # Pending visual / interaction verification
 
-## 🟢 NEW — connections grow OUT of the soma + breathe with it (2026-06-26)
-Reframed: a connection is the soma *reaching out* to another soma, so it should **grow from the
-membrane**, not plug into it — and stay welded as the soma breathes. Fixes the "static connectors on a
-breathing soma" immersion break.
-- **Softer size-breath + glow pulse:** soma size-breath cut ±10% → ±3% (`BREATH_AMP`); the "alive"
-  feeling now comes from a synchronized **glow pulse** on the nucleus (`BREATH_GLOW_AMP`, in sync with
-  the size rhythm). So the cell body breathes in *light* without the membrane moving far.
-- **Roots on the surface:** `ROOT_EMBED` 0.92 → 0.97 and `DEND_EMBED` 0.8 → 0.92 — connections root at
-  the membrane and flare outward (emerge), instead of diving into the core.
-- **Dendrites breathe with the soma:** `animate_breath_with` scales each dendrite tree about its soma
-  centre in sync, so roots stay glued to the breathing membrane and tips gently sway.
-- [ ] **Connections look like they grow from the membrane** (process sprouting from the cell wall), not
-      pipes plugged into a ball.
-- [ ] **No detach on the breath:** as a soma pulses, its dendrites + connectors stay welded — no gap
-      opening at the contracted phase (the original problem).
-- [ ] **Still feels alive:** the cell body visibly breathes via a slow brightness pulse; dendrite tips
-      sway. If the size-breath now reads too subtle, raise `BREATH_AMP`; if the glow pulse is too
-      strong/weak, tune `BREATH_GLOW_AMP` (both in `tuning.rs`).
-- Note: connectors (which bridge two breathing somas) don't physically pump — they rely on the small
-  breath + flush root so the seam never opens. If you later want them to pump too, that's the
-  vertex-shader endpoint-breath follow-up.
+## 🟢 NEW — fuse connections into the soma + breathing OFF (2026-06-26)
+The close-up showed connectors reading as **solid opaque pink rods** dead-ending at a soft amber soma —
+"two parts bolted together." This pass fuses them and (per owner) removes breathing.
+- **Breathing OFF:** `BREATH_AMP` and `BREATH_GLOW_AMP` set to 0. Soma + dendrites are static (and so
+  always welded to the connectors — the old seam-mismatch can't happen). The faint idle twinkle + firing
+  flares keep it alive. Re-enable by raising those two consts.
+- **Connectors fused to the soma (tuning):** more translucent (`TUBE_RIM_ALPHA` 0.45→0.28), less white
+  pink-ish rim (`TUBE_GLASS_RIM` 0.12→0.06), the soma's amber now bleeds **further** along the tube
+  (`SOMA_BLEED_FALLOFF` 0.4→0.65) for a smooth colour gradient, a **wide flared mouth**
+  (`ROOT_FLARE` 0.022→0.06), and the root sits **inside the membrane glow** (`ROOT_EMBED` 0.97→0.9) so
+  the tube emerges from the haze instead of ending at a hard rim.
+- [ ] **Connectors read as the same glowing amber glass as the soma** near the root — a continuous
+      gradient from membrane → process, not a different-coloured solid rod.
+- [ ] **No hard seam:** the connector flares wide and emerges from the cell-body glow (fused), tapering
+      to a thinner glass line as it leaves.
+- [ ] **Less solid:** tubes look translucent/airy, not opaque pipes (especially mid-span, away from the
+      soma and any pulse).
+- [ ] **No breathing:** soma sits still (no size pulse). Confirm that reads better to you.
+- Iterate (all in `tuning.rs`): `TUBE_RIM_ALPHA` (solidity), `SOMA_BLEED_FALLOFF` + `TUBE_RIM_INTENSITY`
+  (how far/bright the amber fuses), `ROOT_FLARE`/`ROOT_EMBED` (seam fusion). If connectors are still too
+  bright vs the soma, drop `TUBE_RIM_INTENSITY`. Still a known harder case: a thin glass *cylinder* seen
+  very close is all grazing-angle so it fills — the deeper fix (if these tweaks aren't enough) is
+  switching the tube to additive emissive, which never reads opaque.
 
 ## 🟢 NEW — data-driven life: renewal warning + session-log pulse (M3) (2026-06-26)
 The graph now reacts to SQLite. A client running low on sessions (or with an imminent renewal) shifts
