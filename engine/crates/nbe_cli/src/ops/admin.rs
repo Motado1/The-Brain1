@@ -4,6 +4,18 @@ const CALENDAR_URL_KEY: &str = "calendar_ics_url";
 
 // ---- admin -----------------------------------------------------------------------------
 
+/// Offline database maintenance — run on demand (or before a backup). `PRAGMA integrity_check` is a
+/// corruption canary (reports "ok" or a list of problems); `VACUUM` rebuilds the file to defragment +
+/// shrink it; `wal_checkpoint(TRUNCATE)` flushes + truncates the write-ahead log. Best run while
+/// nothing else holds the DB open. Returns a short report.
+pub fn maintain(db: &mut nbe_data::Db) -> Result<String> {
+    let integrity: String = db.conn.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+    db.conn.execute_batch("VACUUM;")?;
+    // No-op on a non-WAL / in-memory DB; ignore its (benign) error there.
+    let _ = db.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    Ok(format!("maintenance: integrity {integrity}; vacuumed + checkpointed"))
+}
+
 pub fn stats(db: &nbe_data::Db) -> Result<String> {
     let knowledge = repo::list_knowledge(&db.conn)?;
     let topics = knowledge

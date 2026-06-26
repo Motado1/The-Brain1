@@ -798,3 +798,14 @@ fn tax_report_estimates_set_aside() {
     assert!(r.contains("@ 50%"), "{r}");
     assert!(r.contains("estimated tax    $400.00"), "{r}");
 }
+
+#[test]
+fn maintain_checks_integrity_and_vacuums() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", None, NOW).unwrap();
+    let r = ops::maintain(&mut db).unwrap();
+    assert!(r.contains("integrity ok"), "fresh db is healthy: {r}");
+    assert!(r.contains("vacuumed"), "{r}");
+}

@@ -27,9 +27,13 @@ packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current 
   Finance button opens it. `nbe_cli` 35 ✓, `nbe_app` 24 ✓, clippy clean.
 - **Connection visuals owner-confirmed:** connectors fused into the soma (translucent amber glass,
   flared roots emerging from the membrane glow); breathing turned OFF (`BREATH_AMP`/`BREATH_GLOW_AMP`=0).
-- **Resume at M5 — robustness & packaging** (`ops::maintain` PRAGMA/VACUUM; `cargo-bundle` `.exe`;
-  release profile). See ROADMAP "M5". Deferred slices: M2 3D world buttons, M4 radial finance viz,
-  the galaxy→solar double-click dive.
+- **M5 — robustness & packaging: DONE (agent side).** `ops::maintain` (integrity_check + VACUUM +
+  WAL checkpoint, CLI `Maintain`), release profile (lto/codegen-units/strip), cargo-bundle metadata +
+  `docs/PACKAGING.md`. Owner-run on Windows: add `assets/icon.png`, `cargo bundle --release`, verify
+  DX12. Also fixed: benign Bevy entity-despawn warnings (now `try_despawn`).
+- **Resume at M6 — automation & AI:** heuristic predictive grouping (similar depletion / schedule
+  gaps) now; offline local LLM deferred. See ROADMAP "M6". Deferred slices: M2 3D world buttons, M4
+  radial finance viz, galaxy→solar double-click dive.
 
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 

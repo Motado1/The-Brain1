@@ -21,8 +21,9 @@ build the **UI shell** first.
   pulse (M3), and finance numbers — Forecast/Revenue/**Tax**/Retention panel + `ops::report_tax` (M4).
   Tree green: `nbe_data` 13 ✓, `nbe_cli` 35 ✓, `nbe_app` 24 ✓, clippy clean across the workspace.
 - **Visuals owner-confirmed good:** somas, fused glowing connections (breathing turned off), planets.
-- **Next: M5 — robustness & packaging** (`ops::maintain` PRAGMA/VACUUM; `cargo-bundle` standalone
-  `.exe` + icon; release GPU profile). Then M6 (heuristics; local LLM deferred).
+- **M5 — robustness & packaging: DONE** (agent side): `ops::maintain` (integrity/VACUUM), release
+  profile, bundle metadata + `docs/PACKAGING.md`. Owner-run on Windows: add an icon, `cargo bundle`,
+  verify DX12. **Next: M6** — heuristic predictive grouping now; local LLM deferred.
 - **Deferred slices to revisit:** M2's floating 3D world buttons (session action already works from the
   panel); M4's 3D radial finance viz; the "galaxy→solar-system" double-click dive + DoF blur (scoped,
   not yet built).
@@ -138,10 +139,13 @@ struct Anatomy { aspects: Vec<Aspect> }   // exactly 5 per sun, fixed order
 - [ ] Deferred (owner decision): 3D Financial Time-Series Network (annual core → 12 monthly somas →
       payment nodes). Revisit after the numbers are trusted on the GPU.
 
-## M5 — Robustness & packaging  `[ ]`
-- [ ] `ops::maintain` (PRAGMA integrity_check + VACUUM), CLI + optional on-close hook.
-- [ ] `cargo-bundle` standalone `.exe` + custom icon.
-- [ ] `[profile.release]` lto/codegen-units/strip; verify wgpu→DX12 + bloom/DoF on the 5080.
+## M5 — Robustness & packaging  `[x]` *(owner-run steps remain)*
+- [x] `ops::maintain` (PRAGMA integrity_check + VACUUM + WAL checkpoint) — CLI `Maintain`;
+      `maintain_checks_integrity_and_vacuums` test.
+- [x] `[profile.release]` lto="thin"/codegen-units=1/strip in `engine/Cargo.toml`.
+- [x] `cargo-bundle` metadata in `nbe_app/Cargo.toml` + `docs/PACKAGING.md` (build/bundle steps).
+- [ ] **Owner-run on Windows:** add `assets/icon.png`, run `cargo bundle --release`, and verify
+      wgpu→DX12 + bloom/DoF cost on the 5080 (the agent can't build a Windows `.exe`/icon headless).
 
 ## M6 — Automation & local AI (last)  `[ ]`
 - [ ] Predictive grouping via plain-Rust heuristics (similar depletion rates, schedule gaps).

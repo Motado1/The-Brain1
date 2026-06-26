@@ -4,6 +4,17 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish = false
+description = "The Brain — neural business engine"
+
+# Standalone desktop packaging via `cargo bundle` (run on the target OS). Produces an app with a name
+# + icon so it launches without a terminal. Add an icon at the path below (256² PNG / .ico) and run
+# `cargo bundle --release -p nbe_app` on the workstation. See docs/PACKAGING.md.
+[package.metadata.bundle]
+name = "The Brain"
+identifier = "com.nbe.thebrain"
+# icon = ["assets/icon.png"]   # uncomment once an icon exists
+category = "Productivity"
+short_description = "Neural business engine for a personal-training practice."
 
 [dependencies]
 bevy = { workspace = true }

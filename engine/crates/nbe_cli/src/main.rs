@@ -27,6 +27,8 @@ enum Command {
     Init,
     /// Show row counts.
     Stats,
+    /// Offline DB maintenance: integrity check + VACUUM + WAL checkpoint.
+    Maintain,
     /// Fill with a demo graph for the visual engine.
     Seed {
         #[arg(long, default_value_t = 500)]
@@ -316,6 +318,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
     match cli.command {
         Command::Init => Ok(format!("database ready at {}", cli.db.display())),
         Command::Stats => ops::stats(&db),
+        Command::Maintain => ops::maintain(&mut db),
         Command::Seed { entities, edges } => ops::seed_demo(&mut db, entities, edges),
 
         Command::ClientAdd {

@@ -28,9 +28,18 @@ uuid = { version = "1", features = ["serde", "v4"] }
 thiserror = "2"
 tempfile = "3"
 
-# Thin, fast builds while iterating; the release profile is tuned for the workstation later.
+# Thin, fast builds while iterating.
 [profile.dev]
 opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Shipping profile for the workstation (RTX 5080): max optimization + stripped binary. `lto` and
+# `codegen-units = 1` trade longer link time for a faster, smaller binary; `strip` drops debug symbols.
+# (panic = "abort" is left off so a panic still unwinds with a backtrace for field diagnosis.)
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
