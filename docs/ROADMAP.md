@@ -27,8 +27,14 @@ build the **UI shell** first.
   (`UiRequestSessionLog` → `on_session_log` → `ops::session_log`). Tree green: `nbe_app` 22 ✓, clippy
   clean, builds. **Remaining M2 slice:** floating 3D world action buttons (`WorldButton` + extend
   picking) — deferred for owner GPU (the action already works from the side panel).
-- **Next:** finish M2's 3D world buttons, then **M3 — data-driven life** (material states from session
-  balance / renewal proximity; session-log → travelling dendrite pulse).
+- **M3 — data-driven life: DONE.** Renewal-warning state (depleting clients pulse + shift hot
+  orange-red via `RenewalWarn` + `fire_render`) and session-log → fires the client (`FireRequests` +
+  `apply_fire_requests`, a pulse runs down its connections). Tree green: `nbe_app` 24 ✓, clippy clean.
+- **Awaiting owner GPU verify:** planets (M1), the M2 dock/panel/session-log, and now the M3 warning
+  pulse + session-log pulse — all logged in `docs/VISUAL_VERIFICATION.md`.
+- **Next:** **M4 — finance numbers** (surface the existing forecasting in the Finance panel + new
+  `ops::report_tax`); the 3D radial finance viz stays deferred. Optionally finish M2's floating 3D
+  world buttons first (the session action already works from the side panel).
 - Branch: `claude/soma-dendrite-connections-9oq6rp`.
 
 ---
@@ -117,10 +123,19 @@ struct Anatomy { aspects: Vec<Aspect> }   // exactly 5 per sun, fixed order
       `ops::session_log` (already exists; calls `recompute_renewal`) → `SceneControl.reload`.
       `SessionOutcome` enum (Completed/NoShow/Cancelled) maps to the DB status; unit-tested.
 
-## M3 — Data-driven life  `[ ]`
-- [ ] Material states from session balance + renewal proximity (extend `recompute_activations`); ≤
-      threshold → renewal-warning pulse/hue shift.
-- [ ] Session-log → travelling pulse down the client's dendrite (trigger an immediate `DendriteWave`).
+## M3 — Data-driven life  `[x]`
+- [x] **Renewal-warning state:** per-client urgency 0..1 from sessions-remaining on the active package
+      (`session_warn`) max'd with renewal-date proximity (`renewal_warn`), computed in `build_scene` and
+      attached as `RenewalWarn`. `fire_render` reads it → the nucleus slowly pulses (`WARN_PULSE_SPEED`)
+      and shifts hue toward hot orange-red (`WARN_RGB`/`WARN_TINT`) as a client depletes. Tuning:
+      `WARN_SESSIONS_AT`/`WARN_RENEWAL_DAYS`/`WARN_GLOW`/`WARN_TINT`. 2 headless ramp tests.
+- [x] **Session-log → pulse:** `on_session_log` now queues the client in a new `FireRequests` resource;
+      `apply_fire_requests` fires that client once the scene rebuilds (sets `Firing.accumulator` high →
+      the normal `fire_scheduler` path), so a visible pulse runs down its connections + a dendrite surge
+      sweeps its tree. Frame-TTL'd so an unresolved id is dropped, not retried forever.
+- **Implemented as:** a dedicated `RenewalWarn` signal (kept separate from the generic activation so the
+  warning reads as *depletion*, not just "busy"); reuses the existing firing/pulse machinery for the
+  session-log feedback rather than a bespoke wave. `nbe_app` 24 tests green, clippy clean.
 
 ## M4 — Finance: numbers now, radial viz later  `[ ]`
 - [ ] Surface existing forecasting in the Finance panel: `project_depletion`/`recompute_renewal`,

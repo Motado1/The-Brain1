@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 
-use crate::components::{DbPath, SceneControl};
+use crate::components::{DbPath, FireRequests, SceneControl};
 use crate::domain::Kind;
 use crate::nav::{NodeRegistry, Picker};
 
@@ -223,6 +223,7 @@ pub(crate) fn on_session_log(
     registry: Res<NodeRegistry>,
     db_path: Res<DbPath>,
     mut control: ResMut<SceneControl>,
+    mut fires: ResMut<FireRequests>,
 ) {
     for ev in reader.read() {
         let Some(node) = registry.nodes.get(ev.node) else {
@@ -237,6 +238,8 @@ pub(crate) fn on_session_log(
             nbe_cli::ops::session_log(db, &id, None, status, None, crate::now_unix())
         });
         control.reload = true;
+        // Fire the client once the scene rebuilds → a visible pulse runs down its connections (M3).
+        fires.pending.push((id, 8));
     }
 }
 

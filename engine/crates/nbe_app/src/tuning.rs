@@ -142,3 +142,21 @@ pub(crate) const PLANET_HALO_REL: f32 = 2.2;
 pub(crate) const PLANET_LOD_START: f32 = 0.45;
 /// Zoom detail at which planets are fully present.
 pub(crate) const PLANET_LOD_FULL: f32 = 0.75;
+
+// ---- renewal-warning state (M3: the graph reacts to SQLite) ------------------------------
+// A client running low on sessions (or with an imminent renewal) shifts into a warning state: its
+// nucleus slowly pulses and its hue shifts toward a hot orange-red, so a depleting client visibly
+// "asks for attention" without any UI. Urgency 0..1 is computed in build_scene (RenewalWarn).
+/// At/below this many sessions remaining on the active package, the warning ramps to full (0 left =
+/// full warning, ≥ this many = none). ~11 left reads calm, ~2 left pulses hot.
+pub(crate) const WARN_SESSIONS_AT: f32 = 4.0;
+/// Days-to-renewal at/under which renewal proximity alone drives the warning to full.
+pub(crate) const WARN_RENEWAL_DAYS: f32 = 14.0;
+/// Extra nucleus brightness at the peak of a full-urgency warning pulse.
+pub(crate) const WARN_GLOW: f32 = 1.1;
+/// How far the nucleus hue shifts toward the warning colour at peak (0 = none, 1 = fully).
+pub(crate) const WARN_TINT: f32 = 0.7;
+/// Warning-pulse speed (sine argument multiplier) — slow, distinct from the fast idle twinkle.
+pub(crate) const WARN_PULSE_SPEED: f32 = 2.4;
+/// Warning hue (hot orange-red, HDR) the nucleus shifts toward.
+pub(crate) const WARN_RGB: (f32, f32, f32) = (1.8, 0.45, 0.12);

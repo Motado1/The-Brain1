@@ -184,6 +184,24 @@ fn spawn_camera(commands: &mut Commands, focus: Vec3, radius: f32) {
 
 // ---- scene build -----------------------------------------------------------------------
 
+/// Renewal-warning urgency (0..1) from sessions remaining on the active package: full at 0 left,
+/// fading to none at `WARN_SESSIONS_AT` left (so a fresh package reads calm, a near-empty one hot).
+fn session_warn(remaining: f32) -> f32 {
+    ((WARN_SESSIONS_AT - remaining) / WARN_SESSIONS_AT).clamp(0.0, 1.0)
+}
+
+/// Renewal-warning urgency (0..1) from days until renewal: full at/under 0 (due/overdue), fading to
+/// none at `WARN_RENEWAL_DAYS` out.
+fn renewal_warn(days: f32) -> f32 {
+    if days <= 0.0 {
+        1.0
+    } else if days >= WARN_RENEWAL_DAYS {
+        0.0
+    } else {
+        1.0 - days / WARN_RENEWAL_DAYS
+    }
+}
+
 /// Recompute and persist every neuron's activation from its facets (idempotent). Best-effort —
 /// a missing/locked DB just leaves the stored values in place.
 fn recompute_activations(path: &str) {
@@ -389,6 +407,35 @@ fn build_scene(
             }
         }
     }
+    // Renewal-warning urgency per client (M3): how loudly a client is "asking for attention" from its
+    // sessions-remaining on the active package (max'd with renewal-date proximity). 0 = calm, 1 = hot.
+    let now = now_unix();
+    let mut completed_in: HashMap<&str, i64> = HashMap::new();
+    for s in &snap.sessions {
+        if s.status == "completed" {
+            if let Some(pid) = s.package_id.as_deref() {
+                *completed_in.entry(pid).or_default() += 1;
+            }
+        }
+    }
+    let mut warn_of: HashMap<&str, f32> = HashMap::new();
+    for p in &snap.packages {
+        if !p.active {
+            continue;
+        }
+        let done = completed_in.get(p.id.as_str()).copied().unwrap_or(0);
+        let remaining = (p.total_sessions - done).max(0) as f32;
+        let cur = warn_of.entry(p.client_id.as_str()).or_insert(0.0);
+        *cur = cur.max(session_warn(remaining));
+    }
+    for c in &snap.crm {
+        if let Some(rd) = c.renewal_date {
+            let days = (rd - now) as f32 / 86_400.0;
+            let cur = warn_of.entry(c.entity_id.as_str()).or_insert(0.0);
+            *cur = cur.max(renewal_warn(days));
+        }
+    }
+
     registry.total_revenue_cents = snap
         .ledger
         .iter()
@@ -591,6 +638,11 @@ fn build_scene(
                 commands
                     .entity(node)
                     .insert((ClientRevenue(rev), TargetVisualScale(revenue_to_scale(rev))));
+                // Depleting/renewing clients get the pulsing warning state (M3).
+                let warn = warn_of.get(id.as_str()).copied().unwrap_or(0.0);
+                if warn > 0.02 {
+                    commands.entity(node).insert(RenewalWarn(warn));
+                }
             }
 
             // Radiating dendrites — clients and notes sprout identically (ledger folded out).
@@ -841,4 +893,28 @@ fn build_scene(
     registry.galaxy_radius = radius;
     // Frame the Business network for the opening shot (Research is a distant cluster behind it).
     Some(registry.network_view(Network::Business))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{renewal_warn, session_warn};
+    use crate::tuning::{WARN_RENEWAL_DAYS, WARN_SESSIONS_AT};
+
+    #[test]
+    fn session_warn_ramps_as_sessions_deplete() {
+        assert_eq!(session_warn(WARN_SESSIONS_AT), 0.0, "a fresh-ish package is calm");
+        assert_eq!(session_warn(WARN_SESSIONS_AT + 5.0), 0.0, "plenty left = calm (clamped)");
+        assert_eq!(session_warn(0.0), 1.0, "no sessions left = full warning");
+        // Monotonic: fewer remaining → hotter.
+        assert!(session_warn(1.0) > session_warn(3.0));
+        assert!((0.0..=1.0).contains(&session_warn(2.0)));
+    }
+
+    #[test]
+    fn renewal_warn_ramps_toward_the_date() {
+        assert_eq!(renewal_warn(WARN_RENEWAL_DAYS), 0.0, "far out = calm");
+        assert_eq!(renewal_warn(0.0), 1.0, "due now = full");
+        assert_eq!(renewal_warn(-3.0), 1.0, "overdue = full (clamped)");
+        assert!(renewal_warn(3.0) > renewal_warn(10.0), "closer = hotter");
+    }
 }

@@ -408,11 +408,11 @@ pub(crate) fn fire_render(
     time: Res<Time>,
     picker: Res<Picker>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    q: Query<(Entity, &Firing, &NodeViz), Without<Dissolving>>,
+    q: Query<(Entity, &Firing, &NodeViz, Option<&RenewalWarn>), Without<Dissolving>>,
     mut transforms: Query<&mut Transform>,
 ) {
     let t = time.elapsed_secs();
-    for (entity, firing, viz) in &q {
+    for (entity, firing, viz, warn) in &q {
         let (glow_boost, halo_boost) = if picker.selected_entity == Some(entity) {
             (2.4, 1.6)
         } else if picker.hovered_entity == Some(entity) {
@@ -421,13 +421,20 @@ pub(crate) fn fire_render(
             (1.0, 1.0)
         };
         let twinkle = 1.0 + (t * 1.7 + viz.phase).sin() * viz.twinkle;
-        let mul = (twinkle + firing.intensity * FLARE_GAIN) * glow_boost;
+        // Renewal warning (M3): a depleting client slowly pulses and shifts hue toward a hot
+        // orange-red — a data-driven "attention" state, separate from the fast idle twinkle.
+        let warn = warn.map(|w| w.0).unwrap_or(0.0);
+        let warn_amt = warn * ((t * WARN_PULSE_SPEED + viz.phase).sin() * 0.5 + 0.5);
+        let mul = (twinkle + firing.intensity * FLARE_GAIN + warn_amt * WARN_GLOW) * glow_boost;
+        let (wr, wg, wb) = WARN_RGB;
+        let tint = warn_amt * WARN_TINT;
+        let mix = |base: f32, warnc: f32| base + (warnc - base) * tint;
         // The nucleus is an additive (unlit) billboard, so its brightness is its base_color.
         if let Some(m) = materials.get_mut(&viz.mat) {
             m.base_color = Color::LinearRgba(LinearRgba::new(
-                viz.base_emissive.red * mul,
-                viz.base_emissive.green * mul,
-                viz.base_emissive.blue * mul,
+                mix(viz.base_emissive.red, wr) * mul,
+                mix(viz.base_emissive.green, wg) * mul,
+                mix(viz.base_emissive.blue, wb) * mul,
                 1.0,
             ));
         }
@@ -436,6 +443,34 @@ pub(crate) fn fire_render(
             tr.scale = Vec3::splat(swell);
         }
     }
+}
+
+/// After a scene (re)build, fire any nodes queued in `FireRequests` — e.g. the client whose session was
+/// just logged — so a visible pulse travels down its connections and a surge sweeps its dendrites
+/// (reusing the normal firing path). Retries a few frames (the node may not exist until the rebuild's
+/// commands flush), then drops the request so a vanished id never lingers.
+pub(crate) fn apply_fire_requests(
+    mut req: ResMut<FireRequests>,
+    registry: Res<NodeRegistry>,
+    mut firings: Query<&mut Firing>,
+) {
+    if req.pending.is_empty() {
+        return;
+    }
+    let mut still = Vec::new();
+    for (id, ttl) in std::mem::take(&mut req.pending) {
+        let fired = registry
+            .nodes
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| firings.get_mut(n.entity).ok())
+            .map(|mut f| f.accumulator = 1.0e6) // force a fire on the next fire_scheduler tick
+            .is_some();
+        if !fired && ttl > 0 {
+            still.push((id, ttl - 1));
+        }
+    }
+    req.pending = still;
 }
 
 /// Move propagation pulses along their edge; on arrival, deposit energy into the target neuron

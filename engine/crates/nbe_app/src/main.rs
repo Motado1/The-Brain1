@@ -115,6 +115,7 @@ fn main() {
         .insert_resource(LodState::default())
         .insert_resource(WaveActive::default())
         .insert_resource(InteractionState::default())
+        .insert_resource(FireRequests::default())
         .add_message::<UiRequestSprout>()
         .add_message::<UiRequestLink>()
         .add_message::<UiRequestEdit>()
@@ -173,6 +174,7 @@ fn main() {
                 on_edit,
                 on_dissolve,
                 on_session_log,
+                apply_fire_requests,
             ),
         );
 

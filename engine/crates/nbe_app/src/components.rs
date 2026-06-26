@@ -206,3 +206,17 @@ pub(crate) struct SceneControl {
     pub(crate) reload: bool,
     pub(crate) status: String,
 }
+
+/// Renewal-warning urgency (0..1) on a client node, computed from its sessions-remaining + renewal
+/// proximity. Read by `fire_render` to slowly pulse the nucleus and shift its hue toward the warning
+/// colour — so a depleting client visibly asks for attention. Absent (or 0) on calm/non-client nodes.
+#[derive(Component)]
+pub(crate) struct RenewalWarn(pub(crate) f32);
+
+/// Entity ids queued to "fire" once the scene has (re)built — e.g. after logging a session, so a
+/// visible pulse travels down that client's connections + dendrites. Each carries a small frame TTL so
+/// an id that never resolves (node gone) is dropped instead of retried forever.
+#[derive(Resource, Default)]
+pub(crate) struct FireRequests {
+    pub(crate) pending: Vec<(String, u8)>,
+}

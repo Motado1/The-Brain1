@@ -20,8 +20,13 @@ packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current 
   (`UiRequestSessionLog`/`SessionOutcome` → `on_session_log` → `ops::session_log` → reload). `nbe_app`
   22 ✓, clippy clean, builds. **Remaining M2:** floating 3D `WorldButton`s + picking (deferred for
   owner GPU; the action already works from the panel).
-- **Resume:** finish M2's 3D world buttons, then M3 (data-driven life). Pending owner GPU verify of
-  both the planet look (M1) and the UI shell (M2) — see `docs/VISUAL_VERIFICATION.md`.
+- **M3 — data-driven life: DONE.** Depleting/renewing clients pulse + shift hot orange-red
+  (`RenewalWarn` + `fire_render`); logging a session fires the client so a pulse runs down its
+  connections (`FireRequests` + `apply_fire_requests`). `nbe_app` 24 ✓, clippy clean.
+- **Resume at M4 — finance numbers** (surface existing forecasting in the Finance panel + new
+  `ops::report_tax`; radial finance viz deferred). Optionally finish M2's 3D world buttons first.
+- Pending owner GPU verify: planets (M1), UI shell (M2), warning + session-log pulse (M3) — see
+  `docs/VISUAL_VERIFICATION.md`.
 
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 

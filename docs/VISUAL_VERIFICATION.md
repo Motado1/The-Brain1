@@ -1,5 +1,20 @@
 # Pending visual / interaction verification
 
+## 🟢 NEW — data-driven life: renewal warning + session-log pulse (M3) (2026-06-26)
+The graph now reacts to SQLite. A client running low on sessions (or with an imminent renewal) shifts
+into a **warning state**, and **logging a session fires a visible pulse** through that client.
+- [ ] **Depleting client warns:** a client with few sessions left on its active package (or renewal
+      within ~2 weeks) has its nucleus **slowly pulse and glow hot orange-red** — distinct from the fast
+      idle twinkle. A client with plenty of sessions stays calm/cool. (Seed has clients at various
+      depletion, so some should be visibly warning.)
+- [ ] **Warning scales with urgency:** ~0 sessions left pulses hottest; ~4+ left is calm. Tune
+      `WARN_SESSIONS_AT` / `WARN_RENEWAL_DAYS` (when it kicks in), `WARN_GLOW` / `WARN_TINT` (how loud),
+      `WARN_PULSE_SPEED` (rhythm), `WARN_RGB` (colour) in `tuning.rs`.
+- [ ] **Log a session → pulse:** click a client → `✔ Log session` (M2 panel). After the scene refreshes,
+      that client should **fire** — a pulse travels out along its connectors to neighbours and a surge
+      sweeps its dendrites/planets. Confirms the action visibly "moves energy," not just a silent reload.
+- [ ] **No false warnings:** non-clients (notes) and well-stocked clients never enter the warning state.
+
 ## 🟢 NEW — M2 UI shell: dock + planet-aware detail panel + one-click session log (2026-06-25)
 The egui slice of the UI shell. A **top dock** offers one-click region jumps; the **detail panel**
 (click a neuron) now reads the node's profile and lets you log a session for a client without the CLI.
