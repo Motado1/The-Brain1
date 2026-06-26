@@ -16,14 +16,15 @@ now / radial viz later**; AI = **heuristics now / local LLM deferred**; after th
 build the **UI shell** first.
 
 ## ▶ Current position (resume here)
-- **Done + pushed: M1, M2, M3, M4.** Profile-planet structure (M1), UI shell — dock + planet-aware
-  detail panel + one-click session log (M2), data-driven life — renewal-warning pulse + session-log
-  pulse (M3), and finance numbers — Forecast/Revenue/**Tax**/Retention panel + `ops::report_tax` (M4).
-  Tree green: `nbe_data` 13 ✓, `nbe_cli` 35 ✓, `nbe_app` 24 ✓, clippy clean across the workspace.
+- **Done + pushed: M1–M5.** Profile-planet structure (M1); UI shell — dock + planet-aware detail panel
+  + one-click session log (M2); data-driven life — renewal-warning pulse + session-log pulse (M3);
+  finance numbers — Forecast/Revenue/**Tax**/Retention panel + `ops::report_tax` (M4); robustness &
+  packaging — `ops::maintain`, release profile, cargo-bundle metadata + `docs/PACKAGING.md` (M5).
+  Tree green: `nbe_data` 13 ✓, `nbe_cli` 36 ✓, `nbe_app` 24 ✓, clippy clean across the workspace.
 - **Visuals owner-confirmed good:** somas, fused glowing connections (breathing turned off), planets.
-- **M5 — robustness & packaging: DONE** (agent side): `ops::maintain` (integrity/VACUUM), release
-  profile, bundle metadata + `docs/PACKAGING.md`. Owner-run on Windows: add an icon, `cargo bundle`,
-  verify DX12. **Next: M6** — heuristic predictive grouping now; local LLM deferred.
+- **Next: M6** — heuristic predictive grouping (similar depletion rates / schedule gaps) now; offline
+  local LLM deferred. **Owner-run on Windows:** add `assets/icon.png`, `cargo bundle --release`,
+  verify wgpu→DX12 (M5 packaging artifacts).
 - **Deferred slices to revisit:** M2's floating 3D world buttons (session action already works from the
   panel); M4's 3D radial finance viz; the "galaxy→solar-system" double-click dive + DoF blur (scoped,
   not yet built).

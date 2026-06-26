@@ -1,5 +1,12 @@
 # Pending visual / interaction verification
 
+> **Snapshot (2026-06-26).** Roadmap M1–M5 are in (see `docs/ROADMAP.md`).
+> **Owner-CONFIRMED on the RTX:** soma GLB variants render as glowing translucent glass; connections
+> fused into the soma (translucent amber, flared roots from the membrane glow); breathing turned OFF.
+> **Still needs the owner's eyes** (entries below): the **planets** at dendrite tips (M1), the **M2 UI**
+> shell (dock / detail panel / one-click session log), and the **M3** renewal-warning pulse +
+> session-log pulse. Work newest-first; older resolved entries are kept for history.
+
 ## 🟢 NEW — fuse connections into the soma + breathing OFF (2026-06-26)
 The close-up showed connectors reading as **solid opaque pink rods** dead-ending at a soft amber soma —
 "two parts bolted together." This pass fuses them and (per owner) removes breathing.
