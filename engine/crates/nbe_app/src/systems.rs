@@ -501,14 +501,14 @@ pub(crate) fn advance_pulses(
     let dt = time.delta_secs();
     for (ent, mut pulse) in &mut pulses {
         let Some(edge) = graph.edges.get(pulse.edge) else {
-            commands.entity(ent).despawn();
+            commands.entity(ent).try_despawn();
             continue;
         };
         if pulse.arrived {
             // Crest has reached the node — ease its glow out (drive_pulse_waves), then despawn.
             pulse.fade += dt / PULSE_FADE_TIME;
             if pulse.fade >= 1.0 {
-                commands.entity(ent).despawn();
+                commands.entity(ent).try_despawn();
             }
             continue;
         }

@@ -275,7 +275,7 @@ pub(crate) fn purge_dissolving(
     let dt = time.delta_secs();
     for (e, mut d) in &mut q {
         if d.tick(dt) {
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }

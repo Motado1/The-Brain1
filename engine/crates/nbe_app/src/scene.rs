@@ -263,7 +263,9 @@ pub(crate) fn apply_reload(
     }
     control.reload = false;
     for e in &old {
-        commands.entity(e).despawn();
+        // try_despawn: another system (e.g. advance_pulses, purge_dissolving) may have already
+        // despawned this entity this frame — silently no-op instead of logging an entity-invalid error.
+        commands.entity(e).try_despawn();
     }
     build_scene(
         &mut commands,
