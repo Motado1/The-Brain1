@@ -151,6 +151,7 @@ fn main() {
                 face_camera,
                 update_hud,
                 animate_breath,
+                animate_breath_with,
                 fire_scheduler,
                 fire_render,
                 advance_pulses,

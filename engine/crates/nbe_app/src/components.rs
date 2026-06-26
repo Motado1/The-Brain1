@@ -82,6 +82,20 @@ pub(crate) struct NodeViz {
     pub(crate) mat: Handle<StandardMaterial>,
     pub(crate) phase: f32,
     pub(crate) twinkle: f32,
+    /// The soma's breath rhythm (shared with its `Breath`), so the nucleus glow-pulse breathes in sync
+    /// with the membrane's subtle size-pulse — the cell body breathes as one.
+    pub(crate) breath_phase: f32,
+    pub(crate) breath_speed: f32,
+}
+
+/// Scales a world-space mesh about a fixed `pivot` (its soma's centre) in sync with the soma's breath,
+/// so a dendrite tree's roots stay welded to the breathing membrane (and its tips gently sway). For a
+/// world-space mesh, scaling about pivot P by s is `scale = s; translation = P·(1 − s)`.
+#[derive(Component)]
+pub(crate) struct BreathWith {
+    pub(crate) pivot: Vec3,
+    pub(crate) phase: f32,
+    pub(crate) speed: f32,
 }
 
 /// The addressable graph the animation systems read: who connects to whom, along which path.

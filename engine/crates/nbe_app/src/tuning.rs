@@ -11,6 +11,13 @@ pub(crate) const FIRE_DECAY: f32 = 2.2;
 pub(crate) const FLARE_GAIN: f32 = 2.2;
 /// How much a fired neuron's halo swells at peak.
 pub(crate) const HALO_SWELL: f32 = 0.4;
+/// Soma "breath" size amplitude (fraction). Kept SMALL so flush-rooted connections stay welded to the
+/// membrane as it pulses — most of the alive feeling comes from `BREATH_GLOW_AMP`, not size. Dendrites
+/// scale about their soma by this same factor (`animate_breath_with`), so their roots track the surface.
+pub(crate) const BREATH_AMP: f32 = 0.03;
+/// Soma "breath" glow amplitude — the nucleus brightens/dims by this fraction, in sync with the (now
+/// subtle) size pulse, so the cell body reads as breathing *light* without moving the membrane far.
+pub(crate) const BREATH_GLOW_AMP: f32 = 0.30;
 /// Energy a propagation pulse deposits in its target (threshold ~0.5, so it takes coincidence to
 /// re-fire — cascades stay sparse and fade).
 pub(crate) const PULSE_ENERGY: f32 = 0.16;
@@ -79,15 +86,17 @@ pub(crate) const CONN_BODY: f32 = 0.018;
 pub(crate) const ROOT_FLARE_ZONE: f32 = 0.15;
 /// Concavity of the funnel neck (>1 = fat only right at the membrane, necking fast to the body).
 pub(crate) const ROOT_FLARE_POW: f32 = 2.6;
-/// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). Kept near
-/// the surface so connectors attach to the *clear membrane shell* and flow out from there — not dive
-/// down into the glowing core. Slightly under 1.0 so the flared base fuses into the shell, no gap.
-pub(crate) const ROOT_EMBED: f32 = 0.92;
+/// Where a connector roots, as a fraction of the soma radius (1.0 = the membrane surface). A connection
+/// is the soma *reaching out* — it grows FROM the membrane, not into it. Rooted just at the surface
+/// (1.0 − `BREATH_AMP`, so it sits flush at the breath's tightest and is covered otherwise) and flared
+/// outward, so it reads as a process emerging from the cell wall — never an embedded pipe.
+pub(crate) const ROOT_EMBED: f32 = 0.97;
 
 // ---- branching dendrites (fractal tree, reference-neuron structure) ---------------------
-/// Where a dendrite trunk begins, as a fraction of the soma radius — matched to SOMA_BASE so the
-/// trunk roots into the membrane shell between connection bulges (not deep at the core, not floating).
-pub(crate) const DEND_EMBED: f32 = 0.8;
+/// Where a dendrite trunk begins, as a fraction of the soma radius — near the surface so the tree
+/// sprouts FROM the membrane shell (not deep at the core). Dendrites then track the breathing surface
+/// (`animate_breath_with` scales the tree about the soma), so the roots stay welded as it pulses.
+pub(crate) const DEND_EMBED: f32 = 0.92;
 /// Trunk *base* width as a fraction of the soma radius — where the dendrite tree leaves the soma,
 /// then a concave taper (DEND_ROOT_TAPER_POW) necks it down. Kept THIN (filament era): a fat trunk is
 /// mostly camera-facing surface, so the additive core lights its whole width and reads as a solid

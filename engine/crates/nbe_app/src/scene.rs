@@ -605,6 +605,8 @@ fn build_scene(
                         mat: core_mat,
                         phase: rand_unit(id, 8) * std::f32::consts::TAU,
                         twinkle: 0.08 + rand01(id, 15) * 0.08,
+                        breath_phase: phase,
+                        breath_speed: speed,
                     },
                     SceneItem,
                 ))
@@ -686,6 +688,8 @@ fn build_scene(
                     Transform::default(),
                     // Start past the tip so it's idle until the soma first fires.
                     DendriteWave { soma: node, mat: trunk_mat, t: 99.0, prev_intensity: 0.0 },
+                    // Breathe with the soma so the roots stay welded to the membrane (tips sway).
+                    BreathWith { pivot: p, phase, speed },
                     SceneItem,
                 ));
                 let fine_mat = mk_mat(waves);
@@ -695,6 +699,7 @@ fn build_scene(
                     Transform::default(),
                     DendriteWave { soma: node, mat: fine_mat.clone(), t: 99.0, prev_intensity: 0.0 },
                     DendriteFine { mat: fine_mat, start: DEND_LOD_START, full: DEND_LOD_FULL },
+                    BreathWith { pivot: p, phase, speed },
                     SceneItem,
                 ));
             }

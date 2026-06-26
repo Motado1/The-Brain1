@@ -224,7 +224,19 @@ pub(crate) fn fetch_detail(path: &str, id: &str) -> String {
 pub(crate) fn animate_breath(time: Res<Time>, mut query: Query<(&Breath, &mut Transform)>) {
     let t = time.elapsed_secs();
     for (b, mut transform) in &mut query {
-        transform.scale = b.base * (1.0 + 0.1 * (t * b.speed + b.phase).sin());
+        transform.scale = b.base * (1.0 + BREATH_AMP * (t * b.speed + b.phase).sin());
+    }
+}
+
+/// Breathe a world-space mesh (a dendrite tree) about its soma's centre, in sync with the soma — so
+/// the roots stay welded to the breathing membrane and the tips sway. Scaling world verts about pivot
+/// `P` by `s` is `scale = s; translation = P·(1 − s)`.
+pub(crate) fn animate_breath_with(time: Res<Time>, mut query: Query<(&BreathWith, &mut Transform)>) {
+    let t = time.elapsed_secs();
+    for (bw, mut transform) in &mut query {
+        let s = 1.0 + BREATH_AMP * (t * bw.speed + bw.phase).sin();
+        transform.scale = Vec3::splat(s);
+        transform.translation = bw.pivot * (1.0 - s);
     }
 }
 
@@ -421,11 +433,14 @@ pub(crate) fn fire_render(
             (1.0, 1.0)
         };
         let twinkle = 1.0 + (t * 1.7 + viz.phase).sin() * viz.twinkle;
+        // Slow glow "breath": the cell body pulses in brightness in sync with its (subtle) size-breath,
+        // so it reads as breathing light without the membrane moving far enough to detach connections.
+        let breath = 1.0 + BREATH_GLOW_AMP * (t * viz.breath_speed + viz.breath_phase).sin();
         // Renewal warning (M3): a depleting client slowly pulses and shifts hue toward a hot
         // orange-red — a data-driven "attention" state, separate from the fast idle twinkle.
         let warn = warn.map(|w| w.0).unwrap_or(0.0);
         let warn_amt = warn * ((t * WARN_PULSE_SPEED + viz.phase).sin() * 0.5 + 0.5);
-        let mul = (twinkle + firing.intensity * FLARE_GAIN + warn_amt * WARN_GLOW) * glow_boost;
+        let mul = (twinkle * breath + firing.intensity * FLARE_GAIN + warn_amt * WARN_GLOW) * glow_boost;
         let (wr, wg, wb) = WARN_RGB;
         let tint = warn_amt * WARN_TINT;
         let mix = |base: f32, warnc: f32| base + (warnc - base) * tint;
