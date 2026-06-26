@@ -20,13 +20,16 @@ packaging → AI) now lives in **`docs/ROADMAP.md`** with checkboxes. **Current 
   (`UiRequestSessionLog`/`SessionOutcome` → `on_session_log` → `ops::session_log` → reload). `nbe_app`
   22 ✓, clippy clean, builds. **Remaining M2:** floating 3D `WorldButton`s + picking (deferred for
   owner GPU; the action already works from the panel).
-- **M3 — data-driven life: DONE.** Depleting/renewing clients pulse + shift hot orange-red
-  (`RenewalWarn` + `fire_render`); logging a session fires the client so a pulse runs down its
-  connections (`FireRequests` + `apply_fire_requests`). `nbe_app` 24 ✓, clippy clean.
-- **Resume at M4 — finance numbers** (surface existing forecasting in the Finance panel + new
-  `ops::report_tax`; radial finance viz deferred). Optionally finish M2's 3D world buttons first.
-- Pending owner GPU verify: planets (M1), UI shell (M2), warning + session-log pulse (M3) — see
-  `docs/VISUAL_VERIFICATION.md`.
+- **M3 done:** depleting/renewing clients pulse + shift hot orange-red; logging a session fires the
+  client so a pulse runs down its connections.
+- **M4 — finance numbers: DONE.** `ops::report_tax` (estimated set-aside from package income − expenses,
+  rate from `tax_rate` config, default 25%) + a `Tax` tab beside Forecast/Revenue/Retention; dock's
+  Finance button opens it. `nbe_cli` 35 ✓, `nbe_app` 24 ✓, clippy clean.
+- **Connection visuals owner-confirmed:** connectors fused into the soma (translucent amber glass,
+  flared roots emerging from the membrane glow); breathing turned OFF (`BREATH_AMP`/`BREATH_GLOW_AMP`=0).
+- **Resume at M5 — robustness & packaging** (`ops::maintain` PRAGMA/VACUUM; `cargo-bundle` `.exe`;
+  release profile). See ROADMAP "M5". Deferred slices: M2 3D world buttons, M4 radial finance viz,
+  the galaxy→solar double-click dive.
 
 ## 🟡 AWAITING GPU EYES — connections rebuilt as ADDITIVE GLOWING FILAMENTS (2026-06-19)
 

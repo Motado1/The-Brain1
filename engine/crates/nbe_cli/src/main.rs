@@ -256,6 +256,8 @@ enum Command {
     SlotDelete { id: String },
     /// Revenue: cash-in by month + earned over time.
     ReportRevenue,
+    /// Estimated tax set-aside from package income (rate from the `tax_rate` config key, default 25%).
+    ReportTax,
     /// Project monthly income forward from active packages + slot cadence (cash paid up front).
     ReportForecast {
         #[arg(long, default_value_t = 6)]
@@ -480,6 +482,7 @@ fn run(cli: Cli) -> nbe_data::Result<String> {
         ),
         Command::SlotDelete { id } => ops::slot_delete(&mut db, &id, now),
         Command::ReportRevenue => ops::report_revenue(&db),
+        Command::ReportTax => ops::report_tax(&db),
         Command::ReportForecast { months } => ops::report_forecast(&db, months, now),
         Command::ReportHours => ops::report_hours(&db),
         Command::ReportRetention => ops::report_retention(&db),

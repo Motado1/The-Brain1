@@ -16,25 +16,16 @@ now / radial viz later**; AI = **heuristics now / local LLM deferred**; after th
 build the **UI shell** first.
 
 ## ▶ Current position (resume here)
-- **Done + pushed:** **M1 complete** — M1a (`profile` facet, `48b1b24`) + M1b/M1c/M1d (aspect data,
-  `embed_planets`, scale consts) landed together. The old session-bead/package-twig anatomy is gone;
-  each sun now grows its five profile **planets** at the dendrite tips, LOD-revealed on deep zoom.
-  Tree is green: `nbe_data` 13 ✓, `nbe_cli` 34 ✓, `nbe_app` 21 ✓, clippy clean, `nbe_app` builds.
-- **Awaiting owner GPU verify:** the planet look (see `docs/VISUAL_VERIFICATION.md` M1 checklist —
-  galaxy=suns+links only, suns≫planets, ~5 planets bloom per sun on zoom-in, both networks).
-- **M2 — UI shell: egui slice landed.** Global dock (CRM/Finance/Research/Galaxy jumps), context
-  side-panel now lists the selected node's five profile planets + hosts one-click session-log buttons
-  (`UiRequestSessionLog` → `on_session_log` → `ops::session_log`). Tree green: `nbe_app` 22 ✓, clippy
-  clean, builds. **Remaining M2 slice:** floating 3D world action buttons (`WorldButton` + extend
-  picking) — deferred for owner GPU (the action already works from the side panel).
-- **M3 — data-driven life: DONE.** Renewal-warning state (depleting clients pulse + shift hot
-  orange-red via `RenewalWarn` + `fire_render`) and session-log → fires the client (`FireRequests` +
-  `apply_fire_requests`, a pulse runs down its connections). Tree green: `nbe_app` 24 ✓, clippy clean.
-- **Awaiting owner GPU verify:** planets (M1), the M2 dock/panel/session-log, and now the M3 warning
-  pulse + session-log pulse — all logged in `docs/VISUAL_VERIFICATION.md`.
-- **Next:** **M4 — finance numbers** (surface the existing forecasting in the Finance panel + new
-  `ops::report_tax`); the 3D radial finance viz stays deferred. Optionally finish M2's floating 3D
-  world buttons first (the session action already works from the side panel).
+- **Done + pushed: M1, M2, M3, M4.** Profile-planet structure (M1), UI shell — dock + planet-aware
+  detail panel + one-click session log (M2), data-driven life — renewal-warning pulse + session-log
+  pulse (M3), and finance numbers — Forecast/Revenue/**Tax**/Retention panel + `ops::report_tax` (M4).
+  Tree green: `nbe_data` 13 ✓, `nbe_cli` 35 ✓, `nbe_app` 24 ✓, clippy clean across the workspace.
+- **Visuals owner-confirmed good:** somas, fused glowing connections (breathing turned off), planets.
+- **Next: M5 — robustness & packaging** (`ops::maintain` PRAGMA/VACUUM; `cargo-bundle` standalone
+  `.exe` + icon; release GPU profile). Then M6 (heuristics; local LLM deferred).
+- **Deferred slices to revisit:** M2's floating 3D world buttons (session action already works from the
+  panel); M4's 3D radial finance viz; the "galaxy→solar-system" double-click dive + DoF blur (scoped,
+  not yet built).
 - Branch: `claude/soma-dendrite-connections-9oq6rp`.
 
 ---
@@ -137,11 +128,15 @@ struct Anatomy { aspects: Vec<Aspect> }   // exactly 5 per sun, fixed order
   warning reads as *depletion*, not just "busy"); reuses the existing firing/pulse machinery for the
   session-log feedback rather than a bespoke wave. `nbe_app` 24 tests green, clippy clean.
 
-## M4 — Finance: numbers now, radial viz later  `[ ]`
-- [ ] Surface existing forecasting in the Finance panel: `project_depletion`/`recompute_renewal`,
-      `report_forecast`, `report_revenue`, `report_finance`.
-- [ ] New `ops::report_tax` (estimated withholding per cleared package / by `tax_bucket`).
-- [ ] Deferred: 3D Financial Time-Series Network (annual core → 12 monthly somas → payment nodes).
+## M4 — Finance: numbers now, radial viz later  `[x]`
+- [x] Finance surfaced in the business panel: `Forecast` (`report_forecast`), `Revenue`
+      (`report_revenue`), `Retention`, and now `Tax` tabs; the dock's **Finance** button opens it.
+      (`report_finance`/`project_depletion`/`recompute_renewal` already existed and are reused.)
+- [x] New `ops::report_tax` — estimated tax set-aside from package income minus deductible expenses,
+      annual summary + per-month withholding; rate from the `tax_rate` config key (default 25%). CLI
+      `ReportTax` + `BizTab::Tax`; `tax_report_estimates_set_aside` test (default + config-override).
+- [ ] Deferred (owner decision): 3D Financial Time-Series Network (annual core → 12 monthly somas →
+      payment nodes). Revisit after the numbers are trusted on the GPU.
 
 ## M5 — Robustness & packaging  `[ ]`
 - [ ] `ops::maintain` (PRAGMA integrity_check + VACUUM), CLI + optional on-close hook.

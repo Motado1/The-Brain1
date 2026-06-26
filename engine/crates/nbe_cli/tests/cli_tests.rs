@@ -775,3 +775,26 @@ fn profile_facet_set_view_and_clear() {
     let note_id = repo::list_knowledge(&db.conn).unwrap()[0].entity_id.clone();
     assert!(ops::profile_set(&mut db, &note_id[..8], Some("x"), None, None).is_err());
 }
+
+#[test]
+fn tax_report_estimates_set_aside() {
+    let mut db = Db::open_in_memory().unwrap();
+    ops::client_add(&mut db, "Acme", "active", None, None, NOW).unwrap();
+    let cid = client_id(&db);
+    // $1000 package income, $200 deductible expense → taxable $800.
+    ops::package_add(&mut db, &cid[..8], "PT10", "1000", Some("2026-06-01"), NOW).unwrap();
+    ops::expense_add(&mut db, "200", "gear", NOW).unwrap();
+
+    // Default 25% rate: tax = 800 * .25 = $200, net = 1000 - 200 - 200 = $600.
+    let r = ops::report_tax(&db).unwrap();
+    assert!(r.contains("@ 25%"), "{r}");
+    assert!(r.contains("taxable          $800.00"), "{r}");
+    assert!(r.contains("estimated tax    $200.00"), "{r}");
+    assert!(r.contains("net after tax    $600.00"), "{r}");
+
+    // Config override changes the rate: 50% → tax $400.
+    repo::config_set(&db.conn, "tax_rate", "0.5").unwrap();
+    let r = ops::report_tax(&db).unwrap();
+    assert!(r.contains("@ 50%"), "{r}");
+    assert!(r.contains("estimated tax    $400.00"), "{r}");
+}

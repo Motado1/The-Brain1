@@ -203,6 +203,49 @@ pub fn report_revenue(db: &nbe_data::Db) -> Result<String> {
     Ok(out.trim_end().to_string())
 }
 
+/// Default fraction of taxable income to set aside for tax when no `tax_rate` config key is present.
+const DEFAULT_TAX_RATE: f64 = 0.25;
+
+/// Estimated tax set-aside. Income is the up-front **package cash** (the lump sums) per month;
+/// ledger expenses are deductible. Taxable = max(0, income − expenses); estimated tax = taxable ×
+/// rate, where the rate comes from the `tax_rate` config key (e.g. "0.3") or defaults to 25%. Shows
+/// the annual summary plus a per-month set-aside on cash received, so each cleared package's
+/// withholding is isolated as you go.
+pub fn report_tax(db: &nbe_data::Db) -> Result<String> {
+    let rate = repo::config_get(&db.conn, "tax_rate")?
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|r| (0.0..=1.0).contains(r))
+        .unwrap_or(DEFAULT_TAX_RATE);
+
+    let cash = repo::revenue_cash_by_month(&db.conn)?;
+    let income: i64 = cash.iter().map(|(_, c)| *c).sum();
+    let expenses = repo::ledger_rollup(&db.conn)?.expense_cents;
+    let taxable = (income - expenses).max(0);
+    let est_tax = (taxable as f64 * rate).round() as i64;
+    let net = income - expenses - est_tax;
+
+    let mut out = format!("Tax — estimated set-aside @ {:.0}%\n", rate * 100.0);
+    out.push_str(&format!("  package income   {}\n", format_cents(income)));
+    out.push_str(&format!("  deductible exp   {}\n", format_cents(expenses)));
+    out.push_str(&format!("  taxable          {}\n", format_cents(taxable)));
+    out.push_str(&format!("  estimated tax    {}\n", format_cents(est_tax)));
+    out.push_str(&format!("  net after tax    {}\n", format_cents(net)));
+    out.push_str("  set aside by month (on cash received):\n");
+    if cash.is_empty() {
+        out.push_str("    (none)\n");
+    }
+    for (ym, c) in &cash {
+        let t = (*c as f64 * rate).round() as i64;
+        out.push_str(&format!(
+            "    {ym}   cash {}   set aside {}\n",
+            format_cents(*c),
+            format_cents(t)
+        ));
+    }
+    out.push_str("  (rate from the `tax_rate` config key; defaults to 25%)");
+    Ok(out.trim_end().to_string())
+}
+
 /// Forward income forecast. Since packages are paid in full up front, each *future* renewal
 /// drops its whole price as cash in the month the client's current package is projected to
 /// deplete — then again every full package-cycle after that, assuming like-for-like renewal.

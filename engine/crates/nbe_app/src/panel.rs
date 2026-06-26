@@ -11,16 +11,18 @@ pub(crate) enum BizTab {
     Renewals,
     Forecast,
     Revenue,
+    Tax,
     Retention,
 }
 
 impl BizTab {
-    pub(crate) const ALL: [BizTab; 6] = [
+    pub(crate) const ALL: [BizTab; 7] = [
         BizTab::Agenda,
         BizTab::Sessions,
         BizTab::Renewals,
         BizTab::Forecast,
         BizTab::Revenue,
+        BizTab::Tax,
         BizTab::Retention,
     ];
 
@@ -31,6 +33,7 @@ impl BizTab {
             BizTab::Renewals => "Renewals",
             BizTab::Forecast => "Forecast",
             BizTab::Revenue => "Revenue",
+            BizTab::Tax => "Tax",
             BizTab::Retention => "Retention",
         }
     }
@@ -64,6 +67,7 @@ pub(crate) fn run_report(path: &str, tab: BizTab) -> String {
         BizTab::Renewals => nbe_cli::ops::report_renewals(&db, 30, now),
         BizTab::Forecast => nbe_cli::ops::report_forecast(&db, 6, now),
         BizTab::Revenue => nbe_cli::ops::report_revenue(&db),
+        BizTab::Tax => nbe_cli::ops::report_tax(&db),
         BizTab::Retention => nbe_cli::ops::report_retention(&db),
     };
     res.unwrap_or_else(|e| format!("error: {e}"))
